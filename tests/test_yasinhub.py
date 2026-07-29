@@ -4,13 +4,18 @@ tests/test_yasinhub.py
 report (ترکیب دو منبع)، و خروجی CLI.
 """
 
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+import os
+import signal
+from pathlib import Path
+import pytest
 
-from yasinhub.cli import format_report
+from yasinhub.cli import format_report, main as cli_main
 from yasinhub.process_checker import ProcessStatus, check_process
-from yasinhub.registry import ProjectEntry
+from yasinhub.registry import ProjectEntry, load_config, default_registry
 from yasinhub.report import build_report
 from yasinhub.status_store import read_all_statuses, read_status, write_status
+from yasinhub.service_manager import start_service, stop_service, restart_service
 
 
 # ---------------------------------------------------------------------------
@@ -123,3 +128,104 @@ def test_format_report_includes_name_and_message():
     assert "demo" in output
     assert "در حال اجرا" in output
     assert "۱۰ پست منتشر شد" in output
+
+
+# ---------------------------------------------------------------------------
+# v0.2 Central Configuration & Service Management Tests
+# ---------------------------------------------------------------------------
+
+def test_config_generation_and_loading(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    # باید فایل کانفیگ پیش‌فرض رو ایجاد کنه
+    projects = load_config(config_file)
+    assert len(projects) > 0
+    assert config_file.exists()
+
+    # ویرایش یک پروژه برای بررسی لود شدن کانفیگ سفارشی
+    import yaml
+    with open(config_file, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    data["projects"][0]["description"] = "توضیح تستی سفارشی"
+    with open(config_file, "w", encoding="utf-8") as f:
+        yaml.dump(data, f)
+
+    reloaded_projects = load_config(config_file)
+    assert reloaded_projects[0].description == "توضیح تستی سفارشی"
+
+
+@patch("yasinhub.service_manager.subprocess.Popen")
+@patch("yasinhub.service_manager.check_process")
+def test_start_service_success(mock_check, mock_popen, tmp_path):
+    # فرض کنیم پروسس الان در حال اجرا نیست
+    mock_check.return_value = ProcessStatus(pattern="test_pattern", running=False, pids=[])
+
+    # ساختن شیء پروسس ساختگی که متوقف نشده (poll برمی‌گرداند None)
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_popen.return_value = mock_proc
+
+    project = ProjectEntry(name="test_srv", start_command="python3 run.py", process_pattern="test_pattern")
+    logs_dir = tmp_path / "logs"
+
+    success = start_service(project, logs_dir=logs_dir)
+    assert success is True
+    assert (logs_dir / "test_srv.log").exists()
+
+
+@patch("yasinhub.service_manager.subprocess.run")
+def test_stop_service_custom_command(mock_run):
+    project = ProjectEntry(name="test_srv", stop_command="python3 stop.py")
+    success = stop_service(project)
+    assert success is True
+    mock_run.assert_called_once_with("python3 stop.py", shell=True, timeout=10)
+
+
+@patch("yasinhub.service_manager.os.kill")
+@patch("yasinhub.service_manager.check_process")
+def test_stop_service_by_pid(mock_check, mock_kill):
+    mock_check.return_value = ProcessStatus(pattern="test_pattern", running=True, pids=["4567"])
+
+    project = ProjectEntry(name="test_srv", process_pattern="test_pattern")
+    success = stop_service(project)
+    assert success is True
+    mock_kill.assert_called_with(4567, signal.SIGTERM)
+
+
+@patch("yasinhub.cli.build_report")
+def test_cli_status_subcommand(mock_build_report, capsys):
+    from yasinhub.report import ProjectReport
+    mock_build_report.return_value = [
+        ProjectReport(
+            name="test_srv",
+            description="دسکریپشن",
+            process_running=True,
+            last_run="2026-07-26",
+            last_success=True,
+            last_message="اوکی",
+        )
+    ]
+    code = cli_main(["status"])
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "test_srv" in captured.out
+
+
+@patch("yasinhub.service_manager.start_service")
+@patch("yasinhub.service_manager.stop_service")
+@patch("yasinhub.service_manager.restart_service")
+def test_cli_management_subcommands(mock_restart, mock_stop, mock_start, capsys):
+    mock_start.return_value = True
+    mock_stop.return_value = True
+    mock_restart.return_value = True
+
+    # تست استارت همه سرویس‌ها
+    code = cli_main(["start"])
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "با موفقیت انجام شد" in captured.out
+
+    # تست استارت یک سرویس خاص غیرموجود
+    code = cli_main(["start", "non_existent_service"])
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "یافت نشد" in captured.out
