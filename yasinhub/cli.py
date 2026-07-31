@@ -7,6 +7,7 @@ cli.py
     python -m yasinhub.cli start [service_name | all]
     python -m yasinhub.cli stop [service_name | all]
     python -m yasinhub.cli restart [service_name | all]
+    python -m yasinhub.cli agent [register | status | health | start | stop | restart] [args]
 
 این ابزار به عنوان لایه کنترل مرکزی اکوسیستم Yasin عمل می‌کند.
 """
@@ -55,6 +56,33 @@ def main(argv: Optional[List[str]] = None) -> int:
     # دستور وضعیت هسته مرکزی یاسین
     subparsers.add_parser("core", help="نمایش وضعیت و اطلاعات ران‌تایم Yasin-Core")
 
+    # دستور مدیریت و مانیتورینگ عامل‌های یاسین (Yasin-Agent)
+    agent_parser = subparsers.add_parser("agent", help="مدیریت و مانیتورینگ عامل‌های یاسین (Yasin-Agent)")
+    agent_subparsers = agent_parser.add_subparsers(dest="action", required=True)
+
+    # agent register <name> [--description <desc>]
+    reg_parser = agent_subparsers.add_parser("register", help="ثبت یک عامل جدید")
+    reg_parser.add_argument("name", help="نام عامل")
+    reg_parser.add_argument("--description", "-d", default="", help="توضیح عامل")
+
+    # agent status <name>
+    status_parser = agent_subparsers.add_parser("status", help="نمایش وضعیت یک عامل")
+    status_parser.add_argument("name", help="نام عامل")
+
+    # agent health <name>
+    health_parser = agent_subparsers.add_parser("health", help="بررسی سلامت یک عامل")
+    health_parser.add_argument("name", help="نام عامل")
+
+    # agent start/stop/restart <name>
+    start_p = agent_subparsers.add_parser("start", help="شروع به کار یک عامل")
+    start_p.add_argument("name", help="نام عامل")
+
+    stop_p = agent_subparsers.add_parser("stop", help="متوقف کردن یک عامل")
+    stop_p.add_argument("name", help="نام عامل")
+
+    restart_p = agent_subparsers.add_parser("restart", help="راه‌اندازی مجدد یک عامل")
+    restart_p.add_argument("name", help="نام عامل")
+
     # دستورات مدیریت فرآیندها
     start_parser = subparsers.add_parser("start", help="شروع اجرای یک یا همه سرویس‌ها")
     start_parser.add_argument("service", nargs="?", default="all", help="نام سرویس مورد نظر یا all")
@@ -97,6 +125,79 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("==================================================")
         return 0
 
+    elif args.command == "agent":
+        from .agent_integration import AgentIntegration
+        integration = AgentIntegration()
+
+        if args.action == "register":
+            success = integration.register_agent(args.name, args.description)
+            if success:
+                print(f"عامل '{args.name}' با موفقیت ثبت شد.")
+                return 0
+            else:
+                print(f"خطا: ثبت عامل '{args.name}' انجام نشد. بررسی کنید که yasin_agent نصب و متصل باشد.")
+                return 1
+
+        elif args.action == "status":
+            status_info = integration.get_agent_status(args.name)
+            print("==================================================")
+            print(f"وضعیت عامل: {args.name}")
+            print("==================================================")
+            if "error" in status_info and status_info["error"]:
+                print(f"خطا: {status_info['error']}")
+                return 1
+            else:
+                print(f"وضعیت فعلی: {status_info.get('status', 'unknown')}")
+                for key, val in status_info.items():
+                    if key not in ("name", "status", "error"):
+                        print(f"{key}: {val}")
+            print("==================================================")
+            return 0
+
+        elif args.action == "health":
+            health_info = integration.check_agent_health(args.name)
+            print("==================================================")
+            print(f"بررسی سلامت عامل: {args.name}")
+            print("==================================================")
+            if "error" in health_info and health_info["error"]:
+                print(f"وضعیت سلامت: ناسالم (Unhealthy)")
+                print(f"خطا: {health_info['error']}")
+                return 1
+            else:
+                print(f"وضعیت سلامت: {health_info.get('status', 'healthy')}")
+                for key, val in health_info.items():
+                    if key not in ("name", "status", "error"):
+                        print(f"{key}: {val}")
+            print("==================================================")
+            return 0
+
+        elif args.action == "start":
+            success = integration.start_agent(args.name)
+            if success:
+                print(f"عامل '{args.name}' با موفقیت شروع به کار کرد.")
+                return 0
+            else:
+                print(f"خطا: شروع به کار عامل '{args.name}' ناموفق بود.")
+                return 1
+
+        elif args.action == "stop":
+            success = integration.stop_agent(args.name)
+            if success:
+                print(f"عامل '{args.name}' با موفقیت متوقف شد.")
+                return 0
+            else:
+                print(f"خطا: متوقف کردن عامل '{args.name}' ناموفق بود.")
+                return 1
+
+        elif args.action == "restart":
+            success = integration.restart_agent(args.name)
+            if success:
+                print(f"عامل '{args.name}' با موفقیت راه‌اندازی مجدد شد.")
+                return 0
+            else:
+                print(f"خطا: راه‌اندازی مجدد عامل '{args.name}' ناموفق بود.")
+                return 1
+
     elif args.command in ("start", "stop", "restart"):
         from .registry import default_registry
         from .service_manager import start_service, stop_service, restart_service
@@ -126,7 +227,6 @@ def main(argv: Optional[List[str]] = None) -> int:
                 success_count += 1
 
         print(f"عملیات '{args.command}' بر روی {success_count} از {len(targets)} سرویس با موفقیت انجام شد.")
-        # اگر کاربر یک سرویس خاص را درخواست کرده بود و موفق نشد، کد ۱ برگشت داده شود
         if service_name != "all" and success_count == 0:
             return 1
         return 0
