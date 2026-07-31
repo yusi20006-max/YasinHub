@@ -1,13 +1,14 @@
 """
 cli.py
-دستور وضعیت و مدیریت سرویس\u200cها:
+دستور وضعیت و مدیریت سرویس‌ها:
 
     python -m yasinhub.cli status
+    python -m yasinhub.cli core
     python -m yasinhub.cli start [service_name | all]
     python -m yasinhub.cli stop [service_name | all]
     python -m yasinhub.cli restart [service_name | all]
 
-این ابزار به عنوان لایه کنترل مرکزی اکوسیستم Yasin عمل می\u200cکند.
+این ابزار به عنوان لایه کنترل مرکزی اکوسیستم Yasin عمل می‌کند.
 """
 
 from __future__ import annotations
@@ -49,16 +50,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # دستور وضعیت (بدون تغییر)
-    subparsers.add_parser("status", help="نمایش وضعیت هم\u200eی پروژه\u200cها")
+    subparsers.add_parser("status", help="نمایش وضعیت همه‌ی پروژه‌ها")
+
+    # دستور وضعیت هسته مرکزی یاسین
+    subparsers.add_parser("core", help="نمایش وضعیت و اطلاعات ران‌تایم Yasin-Core")
 
     # دستورات مدیریت فرآیندها
-    start_parser = subparsers.add_parser("start", help="شروع اجرای یک یا همه سرویس\u200cها")
+    start_parser = subparsers.add_parser("start", help="شروع اجرای یک یا همه سرویس‌ها")
     start_parser.add_argument("service", nargs="?", default="all", help="نام سرویس مورد نظر یا all")
 
-    stop_parser = subparsers.add_parser("stop", help="متوقف کردن یک یا همه سرویس\u200cها")
+    stop_parser = subparsers.add_parser("stop", help="متوقف کردن یک یا همه سرویس‌ها")
     stop_parser.add_argument("service", nargs="?", default="all", help="نام سرویس مورد نظر یا all")
 
-    restart_parser = subparsers.add_parser("restart", help="راه\u200cاندازی مجدد یک یا همه سرویس\u200cها")
+    restart_parser = subparsers.add_parser("restart", help="راه‌اندازی مجدد یک یا همه سرویس‌ها")
     restart_parser.add_argument("service", nargs="?", default="all", help="نام سرویس مورد نظر یا all")
 
     args = parser.parse_args(argv)
@@ -66,6 +70,31 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command == "status":
         reports = build_report()
         print(format_report(reports))
+        return 0
+
+    elif args.command == "core":
+        from .core_integration import CoreIntegration
+        integration = CoreIntegration()
+        health = integration.check_health()
+
+        print("==================================================")
+        print("وضعیت اتصال به هسته Yasin-Core")
+        print("==================================================")
+        print(f"وضعیت اتصال: {'متصل' if health['connected'] else 'عدم اتصال'}")
+        if health['connected']:
+            print(f"نسخه SDK: {health['version']}")
+            print(f"سازگاری SDK: {'معتبر' if health['compatibility'] else 'نامعتبر'}")
+
+            info = integration.get_runtime_info()
+            print("--------------------------------------------------")
+            print("اطلاعات ران‌تایم (Runtime Information):")
+            print(f"عامل‌ها (Agents): {', '.join(info['agents']) if info['agents'] else 'هیچ عاملی ثبت نشده است'}")
+            print(f"ابزارها (Tools): {', '.join(info['tools']) if info['tools'] else 'هیچ ابزاری ثبت نشده است'}")
+            print(f"پلاگین‌ها (Plugins): {', '.join(info['plugins']) if info['plugins'] else 'هیچ پلاگینی ثبت نشده است'}")
+            print(f"ارائه‌دهندگان هوش مصنوعی (Providers): {', '.join(info['providers']) if info['providers'] else 'هیچ ارائه‌دهنده‌ای ثبت نشده است'}")
+        else:
+            print(f"خطا: {health['error']}")
+        print("==================================================")
         return 0
 
     elif args.command in ("start", "stop", "restart"):

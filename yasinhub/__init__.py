@@ -8,6 +8,7 @@ from .process_checker import ProcessStatus, check_process
 from .registry import ProjectEntry, default_registry
 from .report import ProjectReport, build_report
 from .status_store import StatusRecord, read_all_statuses, read_status, write_status
+from .core_integration import CoreIntegration
 
 __all__ = [
     "ProcessStatus",
@@ -20,6 +21,7 @@ __all__ = [
     "read_all_statuses",
     "read_status",
     "write_status",
+    "CoreIntegration",
 ]
 
 __version__ = "0.1.0"
