@@ -4,6 +4,7 @@ cli.py
 
     python -m yasinhub.cli status
     python -m yasinhub.cli core
+    python -m yasinhub.cli dashboard [--live] [--interval SECONDS]
     python -m yasinhub.cli start [service_name | all]
     python -m yasinhub.cli stop [service_name | all]
     python -m yasinhub.cli restart [service_name | all]
@@ -55,6 +56,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # دستور وضعیت هسته مرکزی یاسین
     subparsers.add_parser("core", help="نمایش وضعیت و اطلاعات ران‌تایم Yasin-Core")
+
+    # دستور داشبورد مانیتورینگ سلامت اکوسیستم
+    dash_parser = subparsers.add_parser("dashboard", help="نمایش داشبورد مانیتورینگ سلامت اکوسیستم یاسین")
+    dash_parser.add_argument("--live", action="store_true", help="نمایش پویای داشبورد (بروزرسانی مداوم)")
+    dash_parser.add_argument("--interval", type=float, default=2.0, help="فاصله زمانی بروزرسانی داشبورد به ثانیه")
 
     # دستور مدیریت و مانیتورینگ عامل‌های یاسین (Yasin-Agent)
     agent_parser = subparsers.add_parser("agent", help="مدیریت و مانیتورینگ عامل‌های یاسین (Yasin-Agent)")
@@ -113,6 +119,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command == "status":
         reports = build_report()
         print(format_report(reports))
+        return 0
+
+    elif args.command == "dashboard":
+        from .dashboard import display_dashboard
+        display_dashboard(live_mode=args.live, update_interval=args.interval)
         return 0
 
     elif args.command == "core":
