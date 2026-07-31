@@ -83,6 +83,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     restart_p = agent_subparsers.add_parser("restart", help="راه‌اندازی مجدد یک عامل")
     restart_p.add_argument("name", help="نام عامل")
 
+    # دستور مدیریت و مانیتورینگ سرویس رله یاسین (Yasin-Relay)
+    relay_parser = subparsers.add_parser("relay", help="مدیریت و مانیتورینگ سرویس رله یاسین (Yasin-Relay)")
+    relay_subparsers = relay_parser.add_subparsers(dest="action", required=True)
+
+    # relay connect
+    relay_subparsers.add_parser("connect", help="اتصال به سرویس رله")
+
+    # relay status
+    relay_subparsers.add_parser("status", help="نمایش وضعیت سرویس رله")
+
+    # relay event <event_type> <payload>
+    event_p = relay_subparsers.add_parser("event", help="مدیریت رویداد سرویس رله")
+    event_p.add_argument("event_type", help="نوع رویداد")
+    event_p.add_argument("payload", help="بدنه رویداد (به صورت JSON یا متن)")
+
     # دستورات مدیریت فرآیندها
     start_parser = subparsers.add_parser("start", help="شروع اجرای یک یا همه سرویس‌ها")
     start_parser.add_argument("service", nargs="?", default="all", help="نام سرویس مورد نظر یا all")
@@ -196,6 +211,50 @@ def main(argv: Optional[List[str]] = None) -> int:
                 return 0
             else:
                 print(f"خطا: راه‌اندازی مجدد عامل '{args.name}' ناموفق بود.")
+                return 1
+
+    elif args.command == "relay":
+        from .relay_integration import RelayIntegration
+        integration = RelayIntegration()
+
+        if args.action == "connect":
+            success = integration.connect()
+            if success:
+                print("ارتباط با سرویس رله با موفقیت برقرار شد.")
+                return 0
+            else:
+                print("خطا: برقراری ارتباط با سرویس رله ناموفق بود. بررسی کنید که yasin_relay نصب و متصل باشد.")
+                return 1
+
+        elif args.action == "status":
+            status_info = integration.get_status()
+            print("==================================================")
+            print("وضعیت سرویس رله Yasin-Relay")
+            print("==================================================")
+            if "error" in status_info and status_info["error"]:
+                print(f"خطا: {status_info['error']}")
+                return 1
+            else:
+                print(f"وضعیت فعلی: {status_info.get('status', 'unknown')}")
+                for key, val in status_info.items():
+                    if key not in ("status", "error"):
+                        print(f"{key}: {val}")
+            print("==================================================")
+            return 0
+
+        elif args.action == "event":
+            import json
+            try:
+                payload_dict = json.loads(args.payload)
+            except Exception:
+                payload_dict = {"message": args.payload}
+
+            success = integration.handle_event(args.event_type, payload_dict)
+            if success:
+                print(f"رویداد '{args.event_type}' با موفقیت پردازش شد.")
+                return 0
+            else:
+                print(f"خطا: پردازش رویداد '{args.event_type}' ناموفق بود.")
                 return 1
 
     elif args.command in ("start", "stop", "restart"):
