@@ -81,22 +81,24 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
 
 def default_registry() -> List[ProjectEntry]:
     """
-    لود کردن فهرست پروژه‌ها از فایل پیکربندی YAML مرکزی.
-    در صورت عدم وجود یا هرگونه خطا، به لیست پیش‌فرض پس‌روی (fallback) می‌کند.
+    لود کردن فهرست پروژه‌ها از فایل پیکربندی YAML مرکزی از طریق لایه مدیریت پیکربندی.
     """
-    return load_config()
+    from .config_manager import get_projects
+    return get_projects()
 
 
 def load_config(config_path: Optional[Path] = None) -> List[ProjectEntry]:
+    """
+    سازگاری با نسخه‌های قبلی: لود کردن پروژه‌ها از مسیر داده شده.
+    در صورت عدم وجود فایل پیکربندی پیش‌فرض را ایجاد می‌کند.
+    """
     path = config_path or DEFAULT_CONFIG_PATH
 
-    # اگر پکیج yaml نصب نبود یا خطایی رخ داد، از پیش‌فرض استفاده شود
     if yaml is None:
         return list(DEFAULT_PROJECTS)
 
     if not path.exists():
         try:
-            # ایجاد دایرکتوری و ذخیره پیکربندی پیش‌فرض
             path.parent.mkdir(parents=True, exist_ok=True)
             default_yaml_content = {
                 "projects": [
@@ -115,26 +117,8 @@ def load_config(config_path: Optional[Path] = None) -> List[ProjectEntry]:
                 encoding="utf-8"
             )
         except Exception:
-            # در صورت عدم امکان نوشتن، فقط ادامه بده و لیست پیش‌فرض رو برگردون
             return list(DEFAULT_PROJECTS)
 
-    try:
-        content = path.read_text(encoding="utf-8")
-        data = yaml.safe_load(content)
-        if not data or "projects" not in data:
-            return list(DEFAULT_PROJECTS)
-
-        projects_list = []
-        for item in data["projects"]:
-            projects_list.append(
-                ProjectEntry(
-                    name=item["name"],
-                    process_pattern=item.get("process_pattern"),
-                    description=item.get("description", ""),
-                    start_command=item.get("start_command"),
-                    stop_command=item.get("stop_command"),
-                )
-            )
-        return projects_list
-    except Exception:
-        return list(DEFAULT_PROJECTS)
+    from .config_manager import ConfigManager
+    manager = ConfigManager(config_path=path)
+    return manager.get_projects()

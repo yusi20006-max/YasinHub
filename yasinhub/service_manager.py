@@ -35,8 +35,13 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
             print(f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}).")
             return False
 
-    # آماده‌سازی مسیر لاگ
-    l_dir = logs_dir or DEFAULT_LOGS_DIR
+    # آماده‌سازی مسیر لاگ از لایه پیکربندی
+    if logs_dir is None:
+        from .config_manager import get_logs_dir
+        l_dir = get_logs_dir()
+    else:
+        l_dir = logs_dir
+
     l_dir.mkdir(parents=True, exist_ok=True)
     log_file_path = l_dir / f"{project.name}.log"
 
