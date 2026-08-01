@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
+# متغیر پیش‌فرض خام، اما در توابع از config_manager استفاده می‌شود تا داینامیک باشد
 DEFAULT_STATUS_DIR = Path(os.environ.get("YASIN_STATUS_DIR", str(Path.home() / ".yasin_status")))
 
 
@@ -50,11 +51,17 @@ def write_status(
     project: str,
     success: bool,
     message: str = "",
-    status_dir: Path = DEFAULT_STATUS_DIR,
+    status_dir: Optional[Path] = None,
 ) -> Path:
     """پروژه‌ها این تابع را در انتهای اجرای خودشان صدا می‌زنند."""
-    status_dir.mkdir(parents=True, exist_ok=True)
-    path = status_dir / f"{project}.json"
+    if status_dir is None:
+        from .config_manager import get_status_dir
+        s_dir = get_status_dir()
+    else:
+        s_dir = status_dir
+
+    s_dir.mkdir(parents=True, exist_ok=True)
+    path = s_dir / f"{project}.json"
     payload = {
         "last_run": datetime.now(timezone.utc).isoformat(),
         "success": success,
@@ -64,8 +71,14 @@ def write_status(
     return path
 
 
-def read_status(project: str, status_dir: Path = DEFAULT_STATUS_DIR) -> Optional[StatusRecord]:
-    path = status_dir / f"{project}.json"
+def read_status(project: str, status_dir: Optional[Path] = None) -> Optional[StatusRecord]:
+    if status_dir is None:
+        from .config_manager import get_status_dir
+        s_dir = get_status_dir()
+    else:
+        s_dir = status_dir
+
+    path = s_dir / f"{project}.json"
     if not path.exists():
         return None
     try:
@@ -75,13 +88,19 @@ def read_status(project: str, status_dir: Path = DEFAULT_STATUS_DIR) -> Optional
     return StatusRecord.from_dict(project, data)
 
 
-def read_all_statuses(status_dir: Path = DEFAULT_STATUS_DIR) -> Dict[str, StatusRecord]:
-    if not status_dir.exists():
+def read_all_statuses(status_dir: Optional[Path] = None) -> Dict[str, StatusRecord]:
+    if status_dir is None:
+        from .config_manager import get_status_dir
+        s_dir = get_status_dir()
+    else:
+        s_dir = status_dir
+
+    if not s_dir.exists():
         return {}
     results: Dict[str, StatusRecord] = {}
-    for path in sorted(status_dir.glob("*.json")):
+    for path in sorted(s_dir.glob("*.json")):
         project = path.stem
-        record = read_status(project, status_dir=status_dir)
+        record = read_status(project, status_dir=s_dir)
         if record is not None:
             results[project] = record
     return results
