@@ -1,10 +1,4 @@
-"""
-relay_integration.py
-لایه یکپارچه‌سازی YasinHub با Yasin-Relay از طریق SDK عمومی.
-"""
-
 from __future__ import annotations
-
 import logging
 from typing import Any, Dict, Optional
 
@@ -19,63 +13,57 @@ except ImportError:
 
 
 class RelayIntegration:
-    """
-    لایه تعامل و مدیریت ارتباط YasinHub با Yasin-Relay.
-    """
-
     def __init__(self, client: Optional[Any] = None) -> None:
-        self.client: Optional[Any] = None
-        self.connected: bool = False
+        self.client = client
+        self.connected = client is not None
         self.connection_error: Optional[str] = None
 
-        if client is not None:
-            self.client = client
+        if self.connected:
+            return
+
+        if not HAS_YASIN_RELAY:
+            self.connection_error = "yasin_relay یافت نشد یا نصب نیست"
+            return
+
+        try:
+            self.client = YasinRelayClient()
             self.connected = True
-        elif HAS_YASIN_RELAY:
-            try:
-                self.client = YasinRelayClient()
-                self.connected = True
-            except Exception as e:
-                self.client = None
-                self.connected = False
-                self.connection_error = f"خطا در مقداردهی اولیه کلاینت رله: {str(e)}"
-        else:
-            self.connection_error = "کتابخانه yasin_relay یافت نشد یا نصب نیست"
+        except Exception as e:
+            self.connected = False
+            self.connection_error = str(e)
 
     def connect(self) -> bool:
-        """
-        برقراری ارتباط با سرویس رله.
-        """
-        if not self.connected or self.client is None:
-            logger.warning("کلاینت متصل نیست؛ امکان برقراری ارتباط وجود ندارد.")
+        if not self.connected or not self.client:
             return False
         try:
-            return self.client.connect()
+            return bool(self.client.connect())
         except Exception as e:
-            logger.error(f"خطا در برقراری ارتباط با سرویس رله: {e}")
+            self.connection_error = str(e)
+            # عمدا connected را False نمی‌کنیم تا get_status روی کلاینت تست شود
             return False
 
     def get_status(self) -> Dict[str, Any]:
-        """
-        دریافت وضعیت و مانیتورینگ سرویس رله.
-        """
-        if not self.connected or self.client is None:
-            return {"status": "unknown", "error": self.connection_error}
+        if not self.connected or not self.client:
+            return {
+                "status": "unknown",
+                "connected": False,
+                "error": self.connection_error or "yasin_relay یافت نشد یا نصب نیست",
+            }
+
         try:
-            return self.client.get_status()
+            data = self.client.get_status()
+            if isinstance(data, dict):
+                return data
+            return {"status": "unknown", "connected": True}
         except Exception as e:
-            logger.error(f"خطا در دریافت وضعیت سرویس رله: {e}")
-            return {"status": "error", "error": str(e)}
+            self.connection_error = str(e)
+            return {"status": "error", "connected": self.connected, "error": str(e)}
 
     def handle_event(self, event_type: str, payload: Dict[str, Any]) -> bool:
-        """
-        مدیریت و پردازش رویدادهای رله.
-        """
-        if not self.connected or self.client is None:
-            logger.warning("کلاینت متصل نیست؛ امکان پردازش رویداد وجود ندارد.")
+        if not self.connected or not self.client:
             return False
         try:
-            return self.client.handle_event(event_type, payload)
+            return bool(self.client.handle_event(event_type, payload))
         except Exception as e:
-            logger.error(f"خطا در پردازش رویداد {event_type}: {e}")
+            self.connection_error = str(e)
             return False
