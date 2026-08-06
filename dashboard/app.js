@@ -1,426 +1,226 @@
-console.log('YASIN DASHBOARD LOADED');
 const API = "";
 
+// Theme toggle
+const themeToggle = document.getElementById("theme-toggle");
+if (themeToggle) {
+    themeToggle.onclick = () => {
+        document.body.classList.toggle("dark");
+    };
+}
 
-// Theme
-
-document
-.getElementById("theme-toggle")
-.onclick = () => {
-    document.body.classList.toggle("dark");
-};
-
-
-// Mobile menu
-
-const menu = document.getElementById("menu-toggle");
+// Mobile menu toggle
+const menuToggle = document.getElementById("menu-toggle");
 const sidebar = document.getElementById("sidebar");
-
-if(menu && sidebar){
-    menu.onclick = () => {
+if (menuToggle && sidebar) {
+    menuToggle.onclick = () => {
         sidebar.classList.toggle("open");
     };
 }
 
-
-
-async function getJSON(url){
-
-    try {
-
-        const res = await fetch(API + url);
-        return await res.json();
-
-    } catch(e){
-
-        return {};
-
+// Helper to safely set text content of elements
+function setSafeText(id, text) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.textContent = text;
     }
-
 }
 
+// Helper to fetch JSON
+async function getJSON(url) {
+    try {
+        const res = await fetch(API + url);
+        if (!res.ok) {
+            return {};
+        }
+        return await res.json();
+    } catch (e) {
+        return {};
+    }
+}
 
-
-// Dashboard cards
-
-
-console.log("YASIN DEBUG START");
-
-async function loadDashboard(){
-
-    
-console.log("CALLING DASHBOARD API");
-
-const data = await getJSON("/api/dashboard");
-
-
-console.log("DASHBOARD RESPONSE:", data);
-
-document.body.insertAdjacentHTML(
-    "afterbegin",
-    "<pre id='debug-box' style='background:#222;color:#0f0;padding:10px'>"
-    + JSON.stringify(data,null,2)
-    + "</pre>"
-);
-
- console.log("DASHBOARD API:", data);
-
+// Load Dashboard summary metrics
+async function loadDashboard() {
+    const data = await getJSON("/api/dashboard");
     const d = data.dashboard || {};
 
-
-    document.getElementById("total-services").textContent =
-        d.total_projects || 0;
-
-    document.getElementById("success").textContent =
-        d.success || 0;
-
-    document.getElementById("running").textContent =
-        d.running || 0;
-
-    document.getElementById("failed").textContent =
-        d.failed || 0;
-
-    document.getElementById("unknown").textContent =
-        d.unknown || 0;
-
-    document.getElementById("total-posts").textContent =
-        d.total_posts || 0;
-
-    document.getElementById("published").textContent =
-        d.published_posts || 0;
-
-    document.getElementById("pending").textContent =
-        d.pending_posts || 0;
-
+    setSafeText("total-services", d.total_projects || 0);
+    setSafeText("success", d.success || 0);
+    setSafeText("running", d.running || 0);
+    setSafeText("failed", d.failed || 0);
+    setSafeText("unknown", d.unknown || 0);
+    setSafeText("total-posts", d.total_posts || 0);
+    setSafeText("published", d.published_posts || 0);
+    setSafeText("pending", d.pending_posts || 0);
 }
 
-
-
-// Metrics
-
-async function loadMetrics(){
-
-    const data =
-    await getJSON("/api/metrics/yasinrelay");
-
-
-    document.getElementById("cpu").textContent =
-        data.cpu || 0;
-
-
-    document.getElementById("memory").textContent =
-        data.memory_mb || 0;
-
-
-    document.getElementById("uptime").textContent =
-        data.uptime || 0;
-
-
+// Load Metrics (crash-safe)
+async function loadMetrics() {
+    const data = await getJSON("/api/metrics/yasinrelay");
     const m = data.metrics || {};
 
-
-    document.getElementById("fetched").textContent =
-        m.total_fetched_posts || 0;
-
-
-    document.getElementById("metrics-published").textContent =
-        m.total_published_posts || 0;
-
-
-    document.getElementById("metrics-failed").textContent =
-        m.total_failed_posts || 0;
-
-
-    document.getElementById("error-rate").textContent =
-        m.error_rate_percent || 0;
-
+    setSafeText("cpu", data.cpu || 0);
+    setSafeText("memory", data.memory_mb || 0);
+    setSafeText("uptime", data.uptime || 0);
+    setSafeText("fetched", m.total_fetched_posts || 0);
+    setSafeText("metrics-published", m.total_published_posts || 0);
+    setSafeText("metrics-failed", m.total_failed_posts || 0);
+    setSafeText("error-rate", m.error_rate_percent || 0);
 }
 
+// Load Services
+async function loadServices() {
+    const servicesData = await getJSON("/api/services");
+    const statusData = await getJSON("/api/status");
 
-
-// Services
-
-
-async function loadServices(){
-
-    const servicesData =
-        await getJSON("/api/services");
-
-    const statusData =
-        await getJSON("/api/status");
-
-
-    const reports =
-        statusData.projects || [];
-
-
-    const body =
-        document.getElementById("services-body");
-
+    const reports = statusData.projects || [];
+    const body = document.getElementById("services-body");
+    if (!body) return;
 
     body.innerHTML = "";
 
+    const services = servicesData.services || [];
 
-    (servicesData.services || [])
-    .forEach(service=>{
+    // Dynamically populate log-service select once
+    const select = document.getElementById("log-service");
+    if (select && select.dataset.populated !== "true") {
+        select.innerHTML = "";
+        services.forEach(service => {
+            const opt = document.createElement("option");
+            opt.value = service.name;
+            opt.textContent = service.name;
+            select.appendChild(opt);
+        });
+        select.dataset.populated = "true";
+        if (services.length > 0) {
+            select.value = services[0].name;
+            loadLogs();
+        }
+    }
 
-
-        let report =
-            reports.find(
-                x => x.name === service.name
-            );
-
+    services.forEach(service => {
+        const report = reports.find(x => x.name === service.name);
 
         let state = "UNKNOWN";
         let color = "gray";
         let uptime = "-";
 
+        if (report) {
+            state = report.status || "UNKNOWN";
+            uptime = report.last_run || "-";
 
-        if(report){
-
-            state =
-                report.status || "UNKNOWN";
-
-
-            uptime =
-                report.last_run || "-";
-
-
-            if(state === "RUNNING"){
+            if (state === "RUNNING") {
                 color = "green";
-            }
-
-            else if(state === "SUCCESS"){
+            } else if (state === "SUCCESS") {
                 color = "blue";
-            }
-
-            else if(state === "FAILED"){
+            } else if (state === "FAILED") {
                 color = "red";
             }
-
         }
 
-
-        const row =
-            document.createElement("tr");
-
-
+        const row = document.createElement("tr");
         row.innerHTML = `
-
-        <td>
-        ${service.name}
-        </td>
-
-
-        <td style="color:${color}">
-        ${state}
-        <br>
-        <small>
-        uptime: ${uptime}
-        </small>
-        </td>
-
-
-        <td>
-
-        <button onclick="control('${service.name}','start')">
-        ▶
-        </button>
-
-
-        <button onclick="control('${service.name}','restart')">
-        🔄
-        </button>
-
-
-        <button onclick="control('${service.name}','stop')">
-        ⛔
-        </button>
-
-        </td>
-
+            <td>${service.name}</td>
+            <td style="color:${color}">
+                ${state}
+                <br>
+                <small>uptime: ${uptime}</small>
+            </td>
+            <td>
+                <button onclick="control('${service.name}','start')">▶</button>
+                <button onclick="control('${service.name}','restart')">🔄</button>
+                <button onclick="control('${service.name}','stop')">⛔</button>
+            </td>
         `;
-
-
         body.appendChild(row);
-
-
     });
-
-
 }
 
-
-
-async function control(service, action){
-
-
-    await fetch(
-    `/api/control/${service}/${action}`,
-    {
-        method:"POST"
+// Control service start/restart/stop
+async function control(service, action) {
+    await fetch(`/api/control/${service}/${action}`, {
+        method: "POST"
     });
-
-
-    loadDashboard();
-
+    // Immediately refresh the dashboard states
+    await refresh();
 }
 
-
-
-
-
-// Events
-
-async function loadEvents(){
-
-    const data =
-    await getJSON("/api/events");
-
-
-    const box =
-    document.getElementById("events");
-
-    console.log("EVENT DATA:", data);
-
-
+// Load events log list
+async function loadEvents() {
+    const data = await getJSON("/api/events");
+    const box = document.getElementById("events");
+    if (!box) return;
 
     box.innerHTML = "";
 
-    box.innerHTML += "<pre style='background:#111;color:#0f0;padding:10px'>EVENT COUNT: "
-        + (data.events || []).length
-        + "</pre>";
-
-
-    (data.events || [])
-    .slice(0,10)
-    .forEach(e=>{
-
-
+    const events = data.events || [];
+    events.slice(0, 10).forEach(e => {
         let color = "#777";
 
-
-        if(e.type === "PublishingCompleted"){
+        if (e.type === "PublishingCompleted") {
             color = "green";
-        }
-
-        else if(e.type === "AIProcessingCompleted"){
+        } else if (e.type === "AIProcessingCompleted") {
             color = "blue";
-        }
-
-        else if(e.type === "DuplicateDetected"){
+        } else if (e.type === "DuplicateDetected") {
             color = "orange";
-        }
-
-        else if(e.type === "ERROR"){
+        } else if (e.type === "ERROR") {
             color = "red";
-        }
-
-
-        else if(e.type === "ProcessingStarted"){
+        } else if (e.type === "ProcessingStarted") {
             color = "gray";
         }
 
+        const item = document.createElement("div");
+        item.style.borderRight = `5px solid ${color}`;
+        item.style.padding = "10px";
+        item.style.margin = "8px";
+        item.style.background = "#fff";
+        item.style.borderRadius = "4px";
+        item.style.boxShadow = "0 2px 4px rgba(0,0,0,0.05)";
+        item.style.direction = "rtl";
 
-        box.innerHTML += `
-
-        <div style="
-            border-right:5px solid ${color};
-            padding:10px;
-            margin:8px;
-        ">
-
-        <b style="color:${color}">
-        ${e.type}
-        </b>
-
-        <br>
-
-        <small>
-        ${e.service}
-        </small>
-
-        <p>
-        ${e.message}
-        </p>
-
-        </div>
-
+        item.innerHTML = `
+            <b style="color:${color}">${e.type}</b>
+            <br>
+            <small style="color: #666;">${e.service}</small>
+            <p style="margin: 5px 0 0 0;">${e.message}</p>
         `;
-
-
+        box.appendChild(item);
     });
-
-
 }
 
+// Load logs of selected service
+async function loadLogs() {
+    const select = document.getElementById("log-service");
+    if (!select || !select.value) return;
 
-
-// Logs
-
-async function loadLogs(){
-
-    const service =
-    document.getElementById(
-    "log-service"
-    ).value;
-
-
-    const data =
-    await getJSON(
-    `/api/logs/${service}?lines=30`
-    );
-
-
-    document
-    .getElementById("logs")
-    .textContent =
-    (data.lines || [])
-    .join("\n");
-
-
-}
-
-
-
-
-async function refresh(){
-
-    try {
-
-        console.log("refresh start");
-
-        await loadDashboard();
-        console.log("dashboard ok");
-
-        await loadServices();
-        console.log("services ok");
-
-        await loadMetrics();
-        console.log("metrics ok");
-
-        await loadEvents();
-        console.log("events ok");
-
-        await loadLogs();
-        console.log("logs ok");
-
-    } catch(e) {
-
-        console.error("Dashboard error:", e);
-
+    const service = select.value;
+    const data = await getJSON(`/api/logs/${service}?lines=30`);
+    const logsPre = document.getElementById("logs");
+    if (logsPre) {
+        logsPre.textContent = (data.lines || []).join("\n");
     }
-
 }
 
+// Bind loadLogs to log-service select dropdown onchange event
+const logServiceSelect = document.getElementById("log-service");
+if (logServiceSelect) {
+    logServiceSelect.addEventListener("change", loadLogs);
+}
 
+// Global refresh function
+async function refresh() {
+    try {
+        await loadDashboard();
+        await loadServices();
+        await loadMetrics();
+        await loadEvents();
+        await loadLogs();
+    } catch (e) {
+        // Safe fail
+    }
+}
 
+// Initial fetch
 refresh();
 
-
-// auto refresh
-
-setInterval(
-refresh,
-15000
-);
+// Set auto refresh every 15 seconds
+setInterval(refresh, 15000);
