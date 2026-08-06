@@ -43,6 +43,18 @@ def is_pid_alive(pid: int) -> bool:
     """بررسی زنده بودن یک پروسس بر اساس PID"""
     if pid <= 0:
         return False
+
+    # ابتدا اگر فرزند پروسس جاری باشد، وضعیت آن را می‌خوانیم تا از زامبی ماندن آن جلوگیری شود.
+    try:
+        pid_reaped, _ = os.waitpid(pid, os.WNOHANG)
+        if pid_reaped == pid:
+            return False
+    except ChildProcessError:
+        # پروسس جاری والد این PID نیست، پس روال عادی را ادامه می‌دهیم.
+        pass
+    except OSError:
+        pass
+
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
