@@ -202,25 +202,30 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         if clean_path.startswith("/api/logs/"):
             service = clean_path.split("/")[-1]
 
+            query_params = parse_qs(parsed_url.query)
             try:
-                max_lines = int(parse_qs(parsed_url.query).get("lines", ["100"])[0])
+                max_lines = int(query_params.get("lines", ["100"])[0])
             except ValueError:
                 max_lines = 100
 
             max_lines = max(10, min(max_lines, 1000))
 
-            log_file = (
-                Path.home()
-                / ".yasinhub"
-                / "logs"
-                / f"{service}.log"
-            )
+            filter_term = query_params.get("filter", [None])[0]
+
+            from ..config_manager import get_logs_dir
+            log_dir = get_logs_dir()
+            log_file = log_dir / f"{service}.log"
 
             if log_file.exists():
-                lines = log_file.read_text(
+                all_lines = log_file.read_text(
                     encoding="utf-8",
                     errors="ignore"
-                ).splitlines()[-max_lines:]
+                ).splitlines()
+
+                if filter_term:
+                    all_lines = [line for line in all_lines if filter_term.lower() in line.lower()]
+
+                lines = all_lines[-max_lines:]
             else:
                 lines = []
 

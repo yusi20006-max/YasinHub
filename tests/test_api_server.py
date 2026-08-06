@@ -186,6 +186,50 @@ def test_api_events_cleanup_get(mock_cleanup, dummy_handler):
     assert response_data["success"] is True
 
 
+@patch("yasinhub.config_manager.get_logs_dir")
+def test_api_logs_endpoint(mock_get_logs, tmp_path, dummy_handler):
+    mock_get_logs.return_value = tmp_path
+    log_file = tmp_path / "testservice.log"
+    log_file.write_text(
+        "INFO - Starting service\n"
+        "WARNING - Disk space low\n"
+        "ERROR - Connection failed\n"
+        "INFO - Stopping service\n",
+        encoding="utf-8"
+    )
+
+    dummy_handler.path = "/api/logs/testservice?lines=10"
+    dummy_handler.do_GET()
+
+    assert dummy_handler.response_code == 200
+    response_data = json.loads(dummy_handler.wfile.getvalue().decode("utf-8"))
+    assert response_data["service"] == "testservice"
+    assert response_data["count"] == 4
+    assert "ERROR - Connection failed" in response_data["lines"]
+
+
+@patch("yasinhub.config_manager.get_logs_dir")
+def test_api_logs_endpoint_with_filter(mock_get_logs, tmp_path, dummy_handler):
+    mock_get_logs.return_value = tmp_path
+    log_file = tmp_path / "testservice.log"
+    log_file.write_text(
+        "INFO - Starting service\n"
+        "WARNING - Disk space low\n"
+        "ERROR - Connection failed\n"
+        "INFO - Stopping service\n",
+        encoding="utf-8"
+    )
+
+    dummy_handler.path = "/api/logs/testservice?filter=error"
+    dummy_handler.do_GET()
+
+    assert dummy_handler.response_code == 200
+    response_data = json.loads(dummy_handler.wfile.getvalue().decode("utf-8"))
+    assert response_data["service"] == "testservice"
+    assert response_data["count"] == 1
+    assert response_data["lines"] == ["ERROR - Connection failed"]
+
+
 @patch("yasinhub.events_engine.cleanup_events")
 def test_api_events_cleanup_post(mock_cleanup, dummy_handler):
     mock_cleanup.return_value = True
