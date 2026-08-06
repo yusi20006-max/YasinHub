@@ -1,0 +1,39 @@
+body {
+    font-family: Tahoma, Arial, sans-serif;
+    background:#f5f6fa;
+    margin:0;
+    padding:20px;
+}
+
+header {
+    background:white;
+    padding:20px;
+    border-radius:15px;
+    margin-bottom:20px;
+}
+
+.card {
+    background:white;
+    border-radius:15px;
+    padding:20px;
+    margin-bottom:15px;
+    box-shadow:0 3px 10px #ddd;
+}
+
+.success {
+    border-right:8px solid #2ecc71;
+}
+
+.failed {
+    border-right:8px solid #e74c3c;
+}
+
+.unknown {
+    border-right:8px solid #95a5a6;
+}
+
+.metric {
+    display:flex;
+    justify-content:space-between;
+    padding:5px;
+}
