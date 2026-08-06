@@ -7,28 +7,30 @@ from yasinhub.services.relay_service import RelayService
 class EcosystemService:
 
     def __init__(self):
-
-        self.services = {
-            "feed": FeedService(),
-            "core": CoreService(),
-            "agent": AgentService(),
-            "relay": RelayService(),
-        }
+        self.feed = FeedService()
+        self.core = CoreService()
+        self.agent = AgentService()
+        self.relay = RelayService()
 
 
     def health(self):
 
-        result = {}
+        return {
+            "feed": self.feed.health(),
+            "core": self.core.health(),
+            "agent": self.agent.health("default"),
+            "relay": self.relay.health()
+        }
 
-        for name, service in self.services.items():
 
-            try:
-                result[name] = service.health()
+    def summary(self):
 
-            except Exception as e:
-                result[name] = {
-                    "status": "error",
-                    "error": str(e)
-                }
-
-        return result
+        return {
+            "services": [
+                "YasinFeed",
+                "YasinCore",
+                "YasinAgent",
+                "YasinRelay"
+            ],
+            "status": self.health()
+        }
