@@ -44,9 +44,9 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasinrelay",
         path=str(Path.home() / "yasin-ecosystem" / "YasinRelay-main"),
-        process_pattern="yasinrelay.cli",
+        process_pattern=None,
         description="تلگرام -> AI -> ایتا",
-        start_command="python3 -m yasinrelay.cli"
+        start_command="python3 -m yasinrelay.cli run"
     ),
     ProjectEntry(
         name="yasin-agent",

@@ -143,7 +143,10 @@ def restart_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> b
     راه‌اندازی مجدد یک سرویس با ترکیب متوقف کردن و شروع مجدد آن.
     """
     print(f"در حال ری‌استارت کردن سرویس {project.name}...")
-    # توقف در صورتی که در حال اجرا باشد؛ اگر در حال اجرا نباشد هم تلاش برای استارت را متوقف نمی‌کنیم
-    stop_service(project)
-    # شروع مجدد سرویس
+    # فقط سرویس‌های دائمی را متوقف می‌کنیم.
+    # Jobها (مثل yasinrelay) بعد از اجرا پروسس دائمی ندارند.
+    if project.stop_command or project.process_pattern:
+        stop_service(project)
+
+    # شروع مجدد سرویس یا اجرای Job
     return start_service(project, logs_dir=logs_dir)
