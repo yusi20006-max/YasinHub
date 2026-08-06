@@ -18,19 +18,35 @@ class YasinFeedClient:
 
 
     def health(self):
-        return self._get("/api/health")
+        try:
+            return self._get("/api/health")
+        except Exception as e:
+            return {
+                "service": "YasinFeed",
+                "status": "unhealthy",
+                "error": f"خطا در ارتباط با کلاینت: {str(e)}"
+            }
 
 
     def version(self):
-        return self._get("/api/version")
+        try:
+            return self._get("/api/version")
+        except Exception as e:
+            return "unknown"
 
 
     def routes(self):
-        return self._get("/api/routes")
+        try:
+            return self._get("/api/routes")
+        except Exception as e:
+            return []
 
 
     def stats(self):
-        return self._get("/api/stats")
+        try:
+            return self._get("/api/stats")
+        except Exception as e:
+            return {}
 
 
     def articles(self, page=1, limit=10):

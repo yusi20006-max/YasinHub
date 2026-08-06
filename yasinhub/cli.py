@@ -132,6 +132,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     restart_parser = subparsers.add_parser("restart", help="راه‌اندازی مجدد یک یا همه سرویس‌ها")
     restart_parser.add_argument("service", nargs="?", default="all", help="نام سرویس مورد نظر یا all")
 
+    # دستور دکتر سیستم (بررسی سلامت و عیب‌یابی)
+    subparsers.add_parser("doctor", help="بررسی سلامت سیستم و عیب‌یابی (Doctor)")
+
     args = parser.parse_args(argv)
 
     if args.command == "status":
@@ -286,24 +289,107 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(f"خطا: پردازش رویداد '{args.event_type}' ناموفق بود.")
                 return 1
 
+    elif args.command == "doctor":
+        from .services.doctor_service import DoctorService
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from typing import Any
+
+        doctor = DoctorService()
+        result = doctor.run()
+
+        console = Console()
+        console.print(Panel("[bold green]🩺 بررسی سلامت و عیب‌یابی سیستم (YasinHub Doctor)[/bold green]", expand=False))
+
+        # 1. Python Environment
+        py_info = result.get("python", {})
+        py_status = py_info.get("status")
+        py_status_str = "[green]✔ سالم (OK)[/green]" if py_status == "ok" else f"[red]❌ خطا ({py_status})[/red]"
+
+        console.print("\n[bold cyan]💻 مشخصات محیط اجرا (Python Runtime):[/bold cyan]")
+        console.print(f"  وضعیت: {py_status_str}")
+        console.print(f"  نسخه پایتون: [yellow]{py_info.get('version')}[/yellow]")
+        console.print(f"  سیستم‌عامل: [yellow]{py_info.get('platform')}[/yellow]")
+
+        # 2. Ecosystem Health
+        console.print("\n[bold cyan]🌐 وضعیت سلامت سرویس‌های اکوسیستم (Ecosystem Health):[/bold cyan]")
+        eco_info = result.get("ecosystem", {})
+
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("سرویس (Service)", style="bold")
+        table.add_column("وضعیت (Status)", justify="center")
+        table.add_column("جزئیات / خطا (Details / Error)")
+
+        def get_status_details(name: str, data: Any):
+            if not isinstance(data, dict):
+                return "[red]❌ نامشخص[/red]", str(data)
+
+            raw_status = data.get("status")
+            if isinstance(raw_status, dict):
+                err = raw_status.get("error") or data.get("error")
+                raw_status = raw_status.get("status")
+            else:
+                err = data.get("error")
+
+            if raw_status in ("healthy", "ok", "active", "SUCCESS"):
+                status_str = "[green]✔ سالم (OK)[/green]"
+            elif raw_status in ("unhealthy", "failed", "FAILED", "unknown"):
+                status_str = "[red]❌ ناسالم (Unhealthy)[/red]"
+            else:
+                status_str = f"[yellow]⚠ {raw_status}[/yellow]"
+
+            details = []
+            if data.get("version"):
+                details.append(f"نسخه: {data.get('version')}")
+            if data.get("projects") is not None:
+                details.append(f"تعداد پروژه‌ها: {data.get('projects')}")
+            if err:
+                details.append(f"[red]{err}[/red]")
+
+            details_str = " | ".join(details) if details else "—"
+            return status_str, details_str
+
+        for srv_key, srv_name in [
+            ("feed", "YasinFeed (فید خوان یاسین)"),
+            ("core", "YasinCore (هسته مرکزی)"),
+            ("agent", "YasinAgent (عامل هوشمند)"),
+            ("relay", "YasinRelay (رله هوشمند)"),
+            ("registry", "Registry (ثبت پروژه‌ها)")
+        ]:
+            srv_data = eco_info.get(srv_key, {})
+            status_str, details_str = get_status_details(srv_name, srv_data)
+            table.add_row(srv_name, status_str, details_str)
+
+        console.print(table)
+        console.print("\n[bold green]✓ بررسی عیب‌یابی به پایان رسید.[/bold green]")
+        return 0
+
     elif args.command in ("start", "stop", "restart"):
         from .registry import default_registry
         from .service_manager import start_service, stop_service, restart_service
+        from rich.console import Console
 
+        console = Console()
         projects = default_registry()
         service_name = args.service
 
         if service_name != "all":
             selected_project = next((p for p in projects if p.name == service_name), None)
             if not selected_project:
-                print(f"خطا: سرویس با نام '{service_name}' یافت نشد.")
+                console.print(f"[bold red]خطا:[/bold red] سرویس با نام '[cyan]{service_name}[/cyan]' یافت نشد.")
                 return 1
             targets = [selected_project]
         else:
             targets = projects
 
+        total_services = len(targets)
+        console.print(f"\n[bold yellow]🚀 آغاز فرآیند '{args.command}' برای {total_services} سرویس...[/bold yellow]\n")
+
         success_count = 0
-        for project in targets:
+        for i, project in enumerate(targets, 1):
+            console.print(f"[bold blue][{i}/{total_services}][/bold blue] عملیات [bold]{args.command}[/bold] روی [cyan]{project.name}[/cyan]...")
+
             if args.command == "start":
                 success = start_service(project)
             elif args.command == "stop":
@@ -313,8 +399,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
             if success:
                 success_count += 1
+                console.print(f"[green]✔[/green] سرویس [cyan]{project.name}[/cyan] با موفقیت پردازش شد.\n")
+            else:
+                console.print(f"[red]❌[/red] خطا در پردازش سرویس [cyan]{project.name}[/cyan].\n")
 
-        print(f"عملیات '{args.command}' بر روی {success_count} از {len(targets)} سرویس با موفقیت انجام شد.")
+        console.print(f"[bold green]✓ عملیات '{args.command}' بر روی {success_count} از {total_services} سرویس با موفقیت انجام شد.[/bold green]")
         if service_name != "all" and success_count == 0:
             return 1
         return 0
