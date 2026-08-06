@@ -169,19 +169,28 @@ async function loadEvents() {
         }
 
         const item = document.createElement("div");
+        const isDark = document.body.classList.contains("dark");
+
         item.style.borderRight = `5px solid ${color}`;
-        item.style.padding = "10px";
+        item.style.padding = "12px";
         item.style.margin = "8px";
-        item.style.background = "#fff";
-        item.style.borderRadius = "4px";
+        item.style.background = isDark ? "#111827" : "#fff";
+        item.style.color = isDark ? "#eee" : "#222";
+        item.style.borderRadius = "8px";
         item.style.boxShadow = "0 2px 4px rgba(0,0,0,0.05)";
         item.style.direction = "rtl";
 
+        let timestamp_str = e.timestamp ? `<span style="float: left; font-size: 0.85em; color: #888;">${e.timestamp}</span>` : "";
+        let severity_str = e.severity ? ` <span style="font-size: 0.8em; padding: 2px 6px; border-radius: 4px; background: ${isDark ? '#1e293b' : '#f1f5f9'}; color: ${isDark ? '#cbd5e1' : '#475569'}; margin-right: 5px;">${e.severity}</span>` : "";
+
         item.innerHTML = `
-            <b style="color:${color}">${e.type}</b>
-            <br>
-            <small style="color: #666;">${e.service}</small>
-            <p style="margin: 5px 0 0 0;">${e.message}</p>
+            <div style="overflow: hidden; margin-bottom: 5px;">
+                <b style="color:${color}; font-size: 1.1em;">${e.type}</b>
+                ${severity_str}
+                ${timestamp_str}
+            </div>
+            <small style="color: ${isDark ? '#94a3b8' : '#4b5563'}; font-weight: bold;">سرویس: ${e.service}</small>
+            <p style="margin: 8px 0 0 0; font-size: 0.95em; line-height: 1.4;">${e.message}</p>
         `;
         box.appendChild(item);
     });
