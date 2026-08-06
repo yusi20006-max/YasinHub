@@ -129,14 +129,24 @@
 
 <h2>Logs</h2>
 
+<div style="display: flex; gap: 15px; align-items: center; margin-bottom: 15px; flex-wrap: wrap;">
+    <div>
+        <label for="log-service">سرویس:</label>
+        <select id="log-service" style="padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-family: inherit;">
+            <option value="yasinrelay">yasinrelay</option>
+        </select>
+    </div>
 
-<select id="log-service">
+    <div>
+        <label for="log-filter">جستجو در لاگ‌ها:</label>
+        <input type="text" id="log-filter" placeholder="مثال: ERROR" style="padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-family: inherit;">
+    </div>
 
-<option value="yasinrelay">
-yasinrelay
-</option>
-
-</select>
+    <div style="display: flex; align-items: center; gap: 5px;">
+        <input type="checkbox" id="realtime-logs" style="width: 18px; height: 18px; cursor: pointer;">
+        <label for="realtime-logs" style="cursor: pointer; user-select: none;">به‌روزرسانی خودکار (Realtime)</label>
+    </div>
+</div>
 
 
 <pre id="logs"></pre>

@@ -196,24 +196,71 @@ async function loadEvents() {
     });
 }
 
-// Load logs of selected service
+// Helper to escape HTML to prevent XSS
+function escapeHTML(str) {
+    return str.replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#039;");
+}
+
+// Load logs of selected service with filtering and highlighting
 async function loadLogs() {
     const select = document.getElementById("log-service");
     if (!select || !select.value) return;
 
     const service = select.value;
-    const data = await getJSON(`/api/logs/${service}?lines=30`);
+    const filterInput = document.getElementById("log-filter");
+    const filterVal = filterInput ? filterInput.value.trim() : "";
+
+    let url = `/api/logs/${service}?lines=50`;
+    if (filterVal) {
+        url += `&filter=${encodeURIComponent(filterVal)}`;
+    }
+
+    const data = await getJSON(url);
     const logsPre = document.getElementById("logs");
     if (logsPre) {
-        logsPre.textContent = (data.lines || []).join("\n");
+        const lines = data.lines || [];
+
+        // Escape HTML and highlight ERROR/WARNING lines
+        const formattedLines = lines.map(line => {
+            const escaped = escapeHTML(line);
+            const lowerLine = escaped.toLowerCase();
+
+            if (lowerLine.includes("error")) {
+                return `<span style="color: #f87171; font-weight: bold;">${escaped}</span>`;
+            } else if (lowerLine.includes("warning")) {
+                return `<span style="color: #fbbf24; font-weight: bold;">${escaped}</span>`;
+            } else if (lowerLine.includes("success") || lowerLine.includes("completed")) {
+                return `<span style="color: #34d399;">${escaped}</span>`;
+            }
+            return escaped;
+        });
+
+        logsPre.innerHTML = formattedLines.join("\n");
     }
 }
 
-// Bind loadLogs to log-service select dropdown onchange event
+// Bind log controls
 const logServiceSelect = document.getElementById("log-service");
 if (logServiceSelect) {
     logServiceSelect.addEventListener("change", loadLogs);
 }
+
+const logFilterInput = document.getElementById("log-filter");
+if (logFilterInput) {
+    logFilterInput.addEventListener("input", loadLogs);
+}
+
+// Realtime log updates implementation (checks every 2 seconds)
+setInterval(() => {
+    const realtimeCheck = document.getElementById("realtime-logs");
+    if (realtimeCheck && realtimeCheck.checked) {
+        loadLogs();
+    }
+}, 2000);
 
 // Global refresh function
 async function refresh() {
