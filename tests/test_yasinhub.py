@@ -107,6 +107,17 @@ def test_build_report_project_without_process_pattern(tmp_path):
     assert reports[0].last_run is None
 
 
+@patch("yasinhub.report.is_pid_alive")
+@patch("yasinhub.report.read_pid")
+def test_build_report_with_saved_pid(mock_read_pid, mock_is_alive, tmp_path):
+    mock_read_pid.return_value = 12345
+    mock_is_alive.return_value = True
+    projects = [ProjectEntry(name="test_srv_pid", process_pattern="some_pat", description="تست")]
+    reports = build_report(projects=projects, status_dir=tmp_path)
+    assert len(reports) == 1
+    assert reports[0].process_running is True
+
+
 # ---------------------------------------------------------------------------
 # cli
 # ---------------------------------------------------------------------------

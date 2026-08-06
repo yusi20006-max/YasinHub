@@ -7,9 +7,12 @@ from __future__ import annotations
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse, parse_qs
 
 from ..report import build_report
+from ..registry import default_registry
+from ..service_manager import start_service, stop_service, restart_service
+from ..pid_store import read_pid, is_pid_alive
 
 
 class YasinHubHandler(BaseHTTPRequestHandler):
@@ -38,32 +41,21 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
         self.wfile.write(payload)
 
-
-    def do_POST(self):
-
-        if self.path.startswith("/api/control/"):
-
-            parts = self.path.split("/")
-
+    def handle_control(self, clean_path: str) -> bool:
+        """پردازش دستورات کنترلی سرویس‌ها"""
+        if clean_path.startswith("/api/control/"):
+            parts = clean_path.split("/")
             if len(parts) < 5:
                 self.send_json({
                     "success": False,
                     "error": "invalid control path"
                 })
-                return
+                return True
 
             service = parts[3]
             action = parts[4]
 
-            from ..registry import default_registry
-            from ..service_manager import (
-                start_service,
-                stop_service,
-                restart_service,
-            )
-
             projects = default_registry()
-
             project = next(
                 (p for p in projects if p.name == service),
                 None
@@ -74,43 +66,46 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                     "success": False,
                     "error": "service not found"
                 })
-                return
+                return True
 
             if action == "start":
                 result = start_service(project)
-
             elif action == "stop":
                 result = stop_service(project)
-
             elif action == "restart":
                 result = restart_service(project)
-
             else:
                 self.send_json({
                     "success": False,
                     "error": "unknown action"
                 })
-                return
-
+                return True
 
             self.send_json({
                 "service": service,
                 "action": action,
                 "success": result
             })
+            return True
+        return False
 
+    def do_POST(self):
+        parsed_url = urlparse(self.path)
+        clean_path = parsed_url.path
+
+        if self.handle_control(clean_path):
             return
-
 
         self.send_response(404)
         self.end_headers()
 
-
     def do_GET(self):
-        from urllib.parse import urlparse, unquote, parse_qs
-
         parsed_url = urlparse(self.path)
         clean_path = parsed_url.path
+
+        # ابتدا بررسی دستورات کنترلی (با توجه به امکان اجرای curl به عنوان GET)
+        if self.handle_control(clean_path):
+            return
 
         if clean_path == "/api/health":
             self.send_json({
@@ -119,9 +114,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             })
             return
 
-
         if clean_path == "/api/dashboard":
-
             reports = build_report()
 
             summary = {
@@ -138,26 +131,17 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             for r in reports:
                 if r.health_state == "RUNNING":
                     summary["running"] += 1
-
                 elif r.health_state == "SUCCESS":
                     summary["success"] += 1
-
                 elif r.health_state == "FAILED":
                     summary["failed"] += 1
-
                 else:
                     summary["unknown"] += 1
 
                 if r.db_stats:
-                    summary["total_posts"] += r.db_stats.get(
-                        "total_posts", 0
-                    )
-                    summary["published_posts"] += r.db_stats.get(
-                        "published_posts", 0
-                    )
-                    summary["pending_posts"] += r.db_stats.get(
-                        "pending_posts", 0
-                    )
+                    summary["total_posts"] += r.db_stats.get("total_posts", 0)
+                    summary["published_posts"] += r.db_stats.get("published_posts", 0)
+                    summary["pending_posts"] += r.db_stats.get("pending_posts", 0)
 
             self.send_json({
                 "ecosystem": "Yasin",
@@ -165,10 +149,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             })
             return
 
-
-
         if clean_path == "/api/status":
-
             reports = build_report()
 
             self.send_json({
@@ -189,13 +170,8 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             })
             return
 
-
         if clean_path == "/api/services":
-
-            from ..registry import default_registry
-
             services = []
-
             for p in default_registry():
                 services.append({
                     "name": p.name,
@@ -214,10 +190,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             })
             return
 
-
-
         if clean_path.startswith("/api/logs/"):
-
             service = clean_path.split("/")[-1]
 
             try:
@@ -249,17 +222,10 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             })
             return
 
-
-
-
         if clean_path.startswith("/api/metrics/"):
-
             service = clean_path.split("/")[-1]
 
-            from ..registry import default_registry
-
             projects = default_registry()
-
             project = next(
                 (p for p in projects if p.name == service),
                 None
@@ -283,9 +249,12 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 "db_stats": {}
             }
 
+            saved_pid = read_pid(service)
+            if saved_pid and is_pid_alive(saved_pid):
+                data["pid"] = saved_pid
+
             try:
                 report = build_report()
-
                 item = next(
                     (r for r in report if r.name == service),
                     None
@@ -302,12 +271,8 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             self.send_json(data)
             return
 
-
-
         if clean_path == "/api/events":
-
             events = []
-
             log_dir = Path.home() / ".yasinhub" / "logs"
 
             for log_file in log_dir.glob("*.log"):
@@ -335,7 +300,6 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                                     "message": line
                                 })
                                 break
-
                 except Exception:
                     pass
 
@@ -343,9 +307,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 "count": len(events),
                 "events": events[:50]
             })
-
             return
-
 
         if clean_path == "/dashboard":
             query = parsed_url.query
@@ -356,7 +318,6 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             self.send_header("Location", redirect_target)
             self.end_headers()
             return
-
 
         if clean_path.startswith("/dashboard/"):
             dashboard_root = Path(__file__).resolve().parents[2] / "dashboard"
@@ -389,14 +350,11 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 self.wfile.write(content)
                 return
 
-
         self.send_response(404)
         self.end_headers()
 
 
-
 def run(host="0.0.0.0", port=8000):
-
     server = HTTPServer(
         (host, port),
         YasinHubHandler
@@ -407,7 +365,6 @@ def run(host="0.0.0.0", port=8000):
     )
 
     server.serve_forever()
-
 
 
 if __name__ == "__main__":
