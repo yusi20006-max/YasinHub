@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
+from datetime import datetime, timezone
 
 from .process_checker import check_process
 from .registry import ProjectEntry, default_registry
@@ -38,11 +39,23 @@ def calculate_health_state(
     if last_success is False:
         return "FAILED"
 
-    if last_success is True:
-        return "SUCCESS"
-
     if last_run is None:
         return "UNKNOWN"
+
+    if last_success is True:
+        try:
+            run_time = datetime.fromisoformat(
+                last_run.replace("Z", "+00:00")
+            )
+            age = datetime.now(timezone.utc) - run_time
+
+            if age.total_seconds() <= 86400:
+                return "SUCCESS"
+
+            return "STALE"
+
+        except Exception:
+            return "SUCCESS"
 
     return "IDLE"
 
