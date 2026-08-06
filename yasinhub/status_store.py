@@ -37,6 +37,10 @@ class StatusRecord:
     success: Optional[bool] = None
     message: str = ""
 
+    health: Dict = None
+    metrics: Dict = None
+    db_stats: Dict = None
+
     @classmethod
     def from_dict(cls, project: str, data: Dict) -> "StatusRecord":
         return cls(
@@ -44,6 +48,11 @@ class StatusRecord:
             last_run=data.get("last_run"),
             success=data.get("success"),
             message=data.get("message", ""),
+            health=data.get("health", {}),
+            metrics=data.get("metrics", {})
+                or data.get("health", {}).get("metrics", {}),
+            db_stats=data.get("db_stats", {})
+                or data.get("health", {}).get("db_stats", {}),
         )
 
 

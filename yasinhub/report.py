@@ -25,6 +25,9 @@ class ProjectReport:
     last_success: Optional[bool]
     last_message: str
     health_state: str
+    health: dict
+    metrics: dict
+    db_stats: dict
 
 
 
@@ -86,6 +89,9 @@ def build_report(
                     status.last_run if status else None,
                     status.success if status else None,
                 ),
+                health=status.health if status else {},
+                metrics=status.metrics if status else {},
+                db_stats=status.db_stats if status else {},
             )
         )
 
