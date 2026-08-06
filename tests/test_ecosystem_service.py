@@ -5,8 +5,11 @@ def main():
 
     service = EcosystemService()
 
-    print("YasinHub Ecosystem Health:")
+    print("Health:")
     print(service.health())
+
+    print("\nSummary:")
+    print(service.summary())
 
 
 if __name__ == "__main__":
