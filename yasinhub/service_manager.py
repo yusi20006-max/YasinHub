@@ -55,9 +55,20 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
     try:
         # اجرای دستور در پس‌زمینه
         # استفاده از shell=True برای ساده‌سازی دستورات خط فرمان با پارامترها و پایپ‌ها
+        env = os.environ.copy()
+
+        if project.path:
+            env["PYTHONPATH"] = (
+                str(project.path)
+                + ":"
+                + env.get("PYTHONPATH", "")
+            )
+
         proc = subprocess.Popen(
             project.start_command,
             shell=True,
+            cwd=project.path if project.path else None,
+            env=env,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,

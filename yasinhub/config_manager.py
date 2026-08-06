@@ -155,6 +155,7 @@ class ConfigManager:
             projects_list.append(
                 ProjectEntry(
                     name=item["name"],
+                    path=item.get("path"),
                     process_pattern=item.get("process_pattern"),
                     description=item.get("description", ""),
                     start_command=item.get("start_command"),

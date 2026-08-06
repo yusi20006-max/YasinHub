@@ -27,6 +27,7 @@ DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.yaml"
 @dataclass
 class ProjectEntry:
     name: str
+    path: Optional[str] = None
     process_pattern: Optional[str] = None
     description: str = ""
     start_command: Optional[str] = None
@@ -42,18 +43,21 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ),
     ProjectEntry(
         name="yasinrelay",
+        path=str(Path.home() / "yasin-ecosystem" / "YasinRelay-main"),
         process_pattern="yasinrelay.cli",
         description="تلگرام -> AI -> ایتا",
         start_command="python3 -m yasinrelay.cli"
     ),
     ProjectEntry(
         name="yasin-agent",
+        path=str(Path.home() / "yasin-ecosystem" / "Yasin-agent-main"),
         process_pattern=None,
         description="اجرای وظایف چندمرحله‌ای (بدون پروسس دائمی)",
         start_command="python3 -m yasin_agent.cli"
     ),
     ProjectEntry(
         name="yasin-ai",
+        path=str(Path.home() / "yasin-ecosystem" / "Yasin-ai-main"),
         process_pattern="yasin_ai.cli",
         description="موتور اصلی هوش مصنوعی یاسین",
         start_command="python3 -m yasin_ai.cli"
