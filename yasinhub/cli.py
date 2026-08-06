@@ -39,8 +39,22 @@ def format_report(reports: List[ProjectReport]) -> str:
     name_width = max((len(r.name) for r in reports), default=10)
 
     for r in reports:
+        status_persian = r.health_state
+        if status_persian == "RUNNING":
+            status_persian = "در حال اجرا"
+        elif status_persian == "SUCCESS":
+            status_persian = "موفق"
+        elif status_persian == "FAILED":
+            status_persian = "خطا"
+        elif status_persian == "UNKNOWN":
+            status_persian = "نامشخص"
+        elif status_persian == "STALE":
+            status_persian = "کهنه"
+        elif status_persian == "IDLE":
+            status_persian = "ایستاده"
+
         lines.append(
-            f"{r.name.ljust(name_width)}  وضعیت: {r.health_state:<10}  "
+            f"{r.name.ljust(name_width)}  وضعیت: {status_persian:<10}  "
             f"آخرین اجرا: {_format_last_run(r)}"
         )
 

@@ -24,10 +24,24 @@ class ProjectReport:
     last_run: Optional[str]
     last_success: Optional[bool]
     last_message: str
-    health_state: str
-    health: dict
-    metrics: dict
-    db_stats: dict
+    health_state: str = "UNKNOWN"
+    health: Optional[dict] = None
+    metrics: Optional[dict] = None
+    db_stats: Optional[dict] = None
+
+    def __post_init__(self):
+        if self.health is None:
+            self.health = {}
+        if self.metrics is None:
+            self.metrics = {}
+        if self.db_stats is None:
+            self.db_stats = {}
+        if self.health_state == "UNKNOWN":
+            self.health_state = calculate_health_state(
+                self.process_running,
+                self.last_run,
+                self.last_success,
+            )
 
 
 

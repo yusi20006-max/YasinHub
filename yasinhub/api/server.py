@@ -107,8 +107,12 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
 
     def do_GET(self):
+        from urllib.parse import urlparse, unquote, parse_qs
 
-        if self.path == "/api/health":
+        parsed_url = urlparse(self.path)
+        clean_path = parsed_url.path
+
+        if clean_path == "/api/health":
             self.send_json({
                 "status": "ok",
                 "service": "YasinHub"
@@ -116,7 +120,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             return
 
 
-        if self.path == "/api/dashboard":
+        if clean_path == "/api/dashboard":
 
             reports = build_report()
 
@@ -163,7 +167,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
 
 
-        if self.path == "/api/status":
+        if clean_path == "/api/status":
 
             reports = build_report()
 
@@ -186,7 +190,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             return
 
 
-        if self.path == "/api/services":
+        if clean_path == "/api/services":
 
             from ..registry import default_registry
 
@@ -212,15 +216,12 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
 
 
-        if self.path.startswith("/api/logs/"):
+        if clean_path.startswith("/api/logs/"):
 
-            from urllib.parse import urlparse, parse_qs
-
-            parsed = urlparse(self.path)
-            service = parsed.path.split("/")[-1]
+            service = clean_path.split("/")[-1]
 
             try:
-                max_lines = int(parse_qs(parsed.query).get("lines", ["100"])[0])
+                max_lines = int(parse_qs(parsed_url.query).get("lines", ["100"])[0])
             except ValueError:
                 max_lines = 100
 
@@ -251,9 +252,9 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
 
 
-        if self.path.startswith("/api/metrics/"):
+        if clean_path.startswith("/api/metrics/"):
 
-            service = self.path.split("/")[-1]
+            service = clean_path.split("/")[-1]
 
             from ..registry import default_registry
 
@@ -303,7 +304,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
 
 
-        if self.path == "/api/events":
+        if clean_path == "/api/events":
 
             events = []
 
@@ -346,62 +347,27 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             return
 
 
-        if self.path == "/api/dashboard":
-
-            dashboard = {
-                "total_projects": 6,
-                "running": 1,
-                "published_posts": 0,
-                "failed": 0
-            }
-
-            try:
-                status_file = (
-                    Path.home()
-                    / ".yasin_status"
-                    / "yasinrelay.json"
-                )
-
-                if status_file.exists():
-                    import json
-
-                    data = json.loads(
-                        status_file.read_text(
-                            encoding="utf-8"
-                        )
-                    )
-
-                    dashboard["published_posts"] = (
-                        data.get("published", 0)
-                    )
-
-            except Exception:
-                pass
-
-
-            self.send_json({
-                "dashboard": dashboard
-            })
-
+        if clean_path == "/dashboard":
+            query = parsed_url.query
+            redirect_target = "/dashboard/"
+            if query:
+                redirect_target += f"?{query}"
+            self.send_response(301)
+            self.send_header("Location", redirect_target)
+            self.end_headers()
             return
 
 
-        # Static PWA Dashboard
-        if self.path.startswith("/dashboard"):
-            from urllib.parse import urlparse
-
+        if clean_path.startswith("/dashboard/"):
             dashboard_root = Path(__file__).resolve().parents[2] / "dashboard"
 
-            clean_path = urlparse(self.path).path
+            relative_path_str = clean_path[len("/dashboard/"):]
+            if not relative_path_str or relative_path_str == "/":
+                relative_path_str = "index.html"
 
-            request_path = clean_path.replace("/dashboard", "", 1)
+            file_path = (dashboard_root / unquote(relative_path_str)).resolve()
 
-            if request_path in ("", "/"):
-                request_path = "/index.html"
-
-            file_path = dashboard_root / unquote(request_path.lstrip("/"))
-
-            if file_path.exists() and file_path.is_file():
+            if file_path.is_relative_to(dashboard_root) and file_path.exists() and file_path.is_file():
                 content = file_path.read_bytes()
 
                 if file_path.suffix == ".html":
