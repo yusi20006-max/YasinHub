@@ -38,3 +38,22 @@ def remove_pid(project_name: str) -> None:
             pid_file.unlink()
         except OSError:
             pass
+
+def is_pid_alive(pid: int) -> bool:
+    """بررسی زنده بودن یک پروسس بر اساس PID"""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as e:
+        import errno
+        if e.errno == errno.ESRCH:
+            return False
+        elif e.errno == errno.EPERM:
+            return True
+        return False
+    return True
