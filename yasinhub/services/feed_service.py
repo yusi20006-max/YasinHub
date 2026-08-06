@@ -15,20 +15,28 @@ class FeedService:
         return self.repository.version()
 
     def get_articles(self, page=1, limit=10):
-        articles = self.repository.list_articles(
-            page,
-            limit
-        )
-
-        return self.adapter.convert_many(
-            articles
-        )
+        try:
+            articles = self.repository.list_articles(
+                page,
+                limit
+            )
+            return self.adapter.convert_many(
+                articles
+            )
+        except Exception as e:
+            print(f"Error in FeedService.get_articles: {e}")
+            return []
 
     def get_article(self, article_id):
-        article = self.repository.get_article(
-            article_id
-        )
-
-        return self.adapter.convert(
-            article
-        )
+        try:
+            article = self.repository.get_article(
+                article_id
+            )
+            if not article:
+                return None
+            return self.adapter.convert(
+                article
+            )
+        except Exception as e:
+            print(f"Error in FeedService.get_article ({article_id}): {e}")
+            return None

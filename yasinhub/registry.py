@@ -36,6 +36,13 @@ class ProjectEntry:
 
 DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
+        name="yasinfeed",
+        path=str(Path.home() / "yasin-ecosystem" / "Yasinfeed-main"),
+        process_pattern="yasinfeed.py",
+        description="سرویس فید خوان یاسین (YasinFeed)",
+        start_command="python3 yasinfeed.py"
+    ),
+    ProjectEntry(
         name="eitaa_news_v2",
         process_pattern="eitaa_news_v2.py",
         description="بات خبری RSS -> @yusinews",
