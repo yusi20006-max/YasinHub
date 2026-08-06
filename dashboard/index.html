@@ -1,27 +1,93 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
+
 <head>
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 
 <title>YasinHub Dashboard</title>
 
-<link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="style.css">
+
+<link rel="manifest" href="manifest.json">
+
 </head>
+
 
 <body>
 
+
 <header>
+
 <h1>🟢 YasinHub Dashboard</h1>
-<p>نمایش وضعیت اکوسیستم یاسین</p>
+
+<p>مدیریت اکوسیستم یاسین</p>
 
 <button id="theme-toggle">
 🌙 تغییر تم
 </button>
+
 </header>
 
-<section id="summary"></section>
+
+
+<section id="summary">
+
+<div>
+<h3>کل پروژه‌ها</h3>
+<span id="total-services">0</span>
+</div>
+
+
+<div>
+<h3>موفق</h3>
+<span id="success">0</span>
+</div>
+
+
+<div>
+<h3>در حال اجرا</h3>
+<span id="running">0</span>
+</div>
+
+
+<div>
+<h3>خطا</h3>
+<span id="failed">0</span>
+</div>
+
+
+<div>
+<h3>نامشخص</h3>
+<span id="unknown">0</span>
+</div>
+
+
+<div>
+<h3>کل پست‌ها</h3>
+<span id="total-posts">0</span>
+</div>
+
+
+<div>
+<h3>منتشر شده</h3>
+<span id="published">0</span>
+</div>
+
+
+<div>
+<h3>در انتظار</h3>
+<span id="pending">0</span>
+</div>
+
+
+</section>
+
+
+
+
+<h2>Services</h2>
 
 <table>
 
@@ -29,30 +95,58 @@
 
 <tr>
 
-<th>پروژه</th>
+<th>نام</th>
 
 <th>وضعیت</th>
 
-<th>آخرین اجرا</th>
-
-<th>دریافت</th>
-
-<th>انتشار</th>
-
-<th>Pending</th>
-
-<th>DB</th>
+<th>کنترل</th>
 
 </tr>
 
 </thead>
 
-<tbody id="table-body">
+
+<tbody id="services-body">
+
 </tbody>
+
 
 </table>
 
+
+
+
+
+<h2>Events</h2>
+
+<div id="events">
+
+</div>
+
+
+
+
+
+<h2>Logs</h2>
+
+
+<select id="log-service">
+
+<option value="yasinrelay">
+yasinrelay
+</option>
+
+</select>
+
+
+<pre id="logs"></pre>
+
+
+
+
 <script src="app.js"></script>
 
+
 </body>
+
 </html>

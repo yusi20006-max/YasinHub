@@ -39,6 +39,73 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
 
+    def do_POST(self):
+
+        if self.path.startswith("/api/control/"):
+
+            parts = self.path.split("/")
+
+            if len(parts) < 5:
+                self.send_json({
+                    "success": False,
+                    "error": "invalid control path"
+                })
+                return
+
+            service = parts[3]
+            action = parts[4]
+
+            from ..registry import default_registry
+            from ..service_manager import (
+                start_service,
+                stop_service,
+                restart_service,
+            )
+
+            projects = default_registry()
+
+            project = next(
+                (p for p in projects if p.name == service),
+                None
+            )
+
+            if project is None:
+                self.send_json({
+                    "success": False,
+                    "error": "service not found"
+                })
+                return
+
+            if action == "start":
+                result = start_service(project)
+
+            elif action == "stop":
+                result = stop_service(project)
+
+            elif action == "restart":
+                result = restart_service(project)
+
+            else:
+                self.send_json({
+                    "success": False,
+                    "error": "unknown action"
+                })
+                return
+
+
+            self.send_json({
+                "service": service,
+                "action": action,
+                "success": result
+            })
+
+            return
+
+
+        self.send_response(404)
+        self.end_headers()
+
+
     def do_GET(self):
 
         if self.path == "/api/health":
@@ -119,11 +186,215 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             return
 
 
+        if self.path == "/api/services":
+
+            from ..registry import default_registry
+
+            services = []
+
+            for p in default_registry():
+                services.append({
+                    "name": p.name,
+                    "description": p.description,
+                    "path": p.path,
+                    "controls": [
+                        "start",
+                        "stop",
+                        "restart"
+                    ]
+                })
+
+            self.send_json({
+                "ecosystem": "Yasin",
+                "services": services
+            })
+            return
+
+
+
+        if self.path.startswith("/api/logs/"):
+
+            from urllib.parse import urlparse, parse_qs
+
+            parsed = urlparse(self.path)
+            service = parsed.path.split("/")[-1]
+
+            try:
+                max_lines = int(parse_qs(parsed.query).get("lines", ["100"])[0])
+            except ValueError:
+                max_lines = 100
+
+            max_lines = max(10, min(max_lines, 1000))
+
+            log_file = (
+                Path.home()
+                / ".yasinhub"
+                / "logs"
+                / f"{service}.log"
+            )
+
+            if log_file.exists():
+                lines = log_file.read_text(
+                    encoding="utf-8",
+                    errors="ignore"
+                ).splitlines()[-max_lines:]
+            else:
+                lines = []
+
+            self.send_json({
+                "service": service,
+                "count": len(lines),
+                "lines": lines
+            })
+            return
+
+
+
+
+        if self.path.startswith("/api/metrics/"):
+
+            service = self.path.split("/")[-1]
+
+            from ..registry import default_registry
+
+            projects = default_registry()
+
+            project = next(
+                (p for p in projects if p.name == service),
+                None
+            )
+
+            if project is None:
+                self.send_json({
+                    "success": False,
+                    "error": "service not found"
+                })
+                return
+
+            data = {
+                "service": service,
+                "status": "UNKNOWN",
+                "pid": None,
+                "cpu": 0,
+                "memory_mb": 0,
+                "uptime": None,
+                "metrics": {},
+                "db_stats": {}
+            }
+
+            try:
+                report = build_report()
+
+                item = next(
+                    (r for r in report if r.name == service),
+                    None
+                )
+
+                if item:
+                    data["status"] = item.health_state
+                    data["metrics"] = item.metrics or {}
+                    data["db_stats"] = item.db_stats or {}
+
+            except Exception as e:
+                data["error"] = str(e)
+
+            self.send_json(data)
+            return
+
+
+
+        if self.path == "/api/events":
+
+            events = []
+
+            log_dir = Path.home() / ".yasinhub" / "logs"
+
+            for log_file in log_dir.glob("*.log"):
+                service = log_file.stem
+
+                try:
+                    lines = log_file.read_text(
+                        encoding="utf-8",
+                        errors="ignore"
+                    ).splitlines()[-50:]
+
+                    for line in reversed(lines):
+                        for name in [
+                            "ContentReceived",
+                            "AIProcessingCompleted",
+                            "PublishingCompleted",
+                            "DuplicateDetected",
+                            "ProcessingStarted",
+                            "ERROR"
+                        ]:
+                            if name in line:
+                                events.append({
+                                    "service": service,
+                                    "type": name,
+                                    "message": line
+                                })
+                                break
+
+                except Exception:
+                    pass
+
+            self.send_json({
+                "count": len(events),
+                "events": events[:50]
+            })
+
+            return
+
+
+        if self.path == "/api/dashboard":
+
+            dashboard = {
+                "total_projects": 6,
+                "running": 1,
+                "published_posts": 0,
+                "failed": 0
+            }
+
+            try:
+                status_file = (
+                    Path.home()
+                    / ".yasin_status"
+                    / "yasinrelay.json"
+                )
+
+                if status_file.exists():
+                    import json
+
+                    data = json.loads(
+                        status_file.read_text(
+                            encoding="utf-8"
+                        )
+                    )
+
+                    dashboard["published_posts"] = (
+                        data.get("published", 0)
+                    )
+
+            except Exception:
+                pass
+
+
+            self.send_json({
+                "dashboard": dashboard
+            })
+
+            return
+
+
         # Static PWA Dashboard
         if self.path.startswith("/dashboard"):
+            from urllib.parse import urlparse
+
             dashboard_root = Path(__file__).resolve().parents[2] / "dashboard"
 
-            request_path = self.path.replace("/dashboard", "", 1)
+            clean_path = urlparse(self.path).path
+
+            request_path = clean_path.replace("/dashboard", "", 1)
 
             if request_path in ("", "/"):
                 request_path = "/index.html"

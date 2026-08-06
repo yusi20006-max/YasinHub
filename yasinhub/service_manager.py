@@ -14,6 +14,7 @@ from typing import Optional
 
 from .process_checker import check_process
 from .registry import ProjectEntry
+from .pid_store import save_pid, read_pid, remove_pid
 
 # دایرکتوری پیش‌فرض لاگ‌ها
 DEFAULT_LOGS_DIR = Path(os.environ.get("YASINHUB_LOGS_DIR", str(Path.home() / ".yasinhub" / "logs")))
@@ -73,6 +74,8 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
             stderr=subprocess.STDOUT,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,
         )
+
+        save_pid(project.name, proc.pid)
         # زمان دادن کوتاه برای استارت اولیه پروسس
         time.sleep(0.3)
         if proc.poll() is not None:
@@ -92,50 +95,88 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
 
 def stop_service(project: ProjectEntry) -> bool:
     """
-    متوقف کردن یک سرویس فعال.
-    اگر دستور توقف سفارشی تعریف شده باشد آن را اجرا می‌کند،
-    در غیر این صورت پروسس‌های منطبق بر process_pattern را با سیگنال خاتمه (SIGTERM) می‌کشد.
+    توقف سرویس با PID ذخیره شده یا process pattern
     """
-    action_taken = False
+
+    saved_pid = read_pid(project.name)
+
+    if saved_pid:
+        try:
+            if hasattr(os, "killpg"):
+                try:
+                    os.killpg(
+                        os.getpgid(saved_pid),
+                        signal.SIGTERM
+                    )
+                except OSError:
+                    os.kill(
+                        saved_pid,
+                        signal.SIGTERM
+                    )
+            else:
+                os.kill(
+                    saved_pid,
+                    signal.SIGTERM
+                )
+
+            remove_pid(project.name)
+
+            print(
+                f"PID {saved_pid} stopped"
+            )
+
+            return True
+
+        except ProcessLookupError:
+            remove_pid(project.name)
+
+
+        except Exception as e:
+            print(
+                f"PID stop error: {e}"
+            )
+
 
     if project.stop_command:
         try:
-            subprocess.run(project.stop_command, shell=True, timeout=10)
-            print(f"دستور توقف سفارشی برای سرویس {project.name} با موفقیت اجرا شد.")
-            action_taken = True
-        except Exception as e:
-            print(f"خطا در اجرای دستور توقف سرویس {project.name}: {e}")
+            subprocess.run(
+                project.stop_command,
+                shell=True,
+                timeout=10
+            )
+
+            return True
+
+        except Exception:
             return False
-    elif project.process_pattern:
-        status = check_process(project.process_pattern)
+
+
+    if project.process_pattern:
+
+        status = check_process(
+            project.process_pattern
+        )
+
         if not status.running:
-            print(f"سرویس {project.name} در حال اجرا نیست.")
             return False
+
 
         for pid_str in status.pids:
+
             try:
-                pid = int(pid_str)
-                # ارسال سیگنال SIGTERM به پروسس و گروه پروسس‌های آن
-                if hasattr(os, "killpg"):
-                    try:
-                        os.killpg(os.getpgid(pid), signal.SIGTERM)
-                    except OSError:
-                        os.kill(pid, signal.SIGTERM)
-                else:
-                    os.kill(pid, signal.SIGTERM)
-                print(f"سیگنال پایان (SIGTERM) به پروسس {pid} ارسال شد.")
-                action_taken = True
-            except Exception as e:
-                print(f"خطا در فرستادن سیگنال پایان به پروسس {pid_str}: {e}")
+                os.kill(
+                    int(pid_str),
+                    signal.SIGTERM
+                )
 
-        # یک فرصت کوتاه برای پایان یافتن کامل پروسس‌ها
-        if action_taken:
-            time.sleep(0.3)
-    else:
-        print(f"خطا: هیچ دستور توقف یا الگوی پروسسی برای سرویس {project.name} تعریف نشده است.")
-        return False
+                return True
 
-    return action_taken
+            except Exception:
+                pass
+
+
+    return False
+
 
 
 def restart_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
