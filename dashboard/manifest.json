@@ -1,0 +1,10 @@
+{
+  "name": "YasinHub Dashboard",
+  "short_name": "YasinHub",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f9d58",
+  "lang": "fa",
+  "dir": "rtl"
+}

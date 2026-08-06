@@ -1,76 +1,59 @@
-const API="http://127.0.0.1:8000/api/status";
-
+const STATUS_API="http://127.0.0.1:8000/api/status";
+const DASHBOARD_API="http://127.0.0.1:8000/api/dashboard";
 
 async function load(){
 
-    const res = await fetch(API);
-    const data = await res.json();
+const status=await fetch(STATUS_API).then(r=>r.json());
+const dash=await fetch(DASHBOARD_API).then(r=>r.json());
 
-    const app=document.getElementById("app");
+const s=dash.dashboard;
 
-    app.innerHTML="";
+document.getElementById("summary").innerHTML=`
+<div class="card">پروژه‌ها<br>${s.total_projects}</div>
+<div class="card">موفق<br>${s.success}</div>
+<div class="card">درحال اجرا<br>${s.running}</div>
+<div class="card">کل پست‌ها<br>${s.total_posts}</div>
+<div class="card">منتشر شده<br>${s.published_posts}</div>
+<div class="card">Pending<br>${s.pending_posts}</div>
+`;
 
+const body=document.getElementById("table-body");
+body.innerHTML="";
 
-    data.projects.forEach(p=>{
+status.projects.forEach(p=>{
 
-        let cls="unknown";
+const cls=p.status.toLowerCase();
 
-        if(p.status==="SUCCESS")
-            cls="success";
+body.innerHTML+=`
+<tr class="${cls}">
+<td>${p.name}</td>
+<td>${p.status}</td>
+<td>${p.last_run??"-"}</td>
+<td>${p.metrics.total_fetched_posts??0}</td>
+<td>${p.metrics.total_published_posts??0}</td>
+<td>${p.db_stats.pending_posts??0}</td>
+<td>${p.db_stats.total_posts??0}</td>
+</tr>
+`;
 
-        if(p.status==="FAILED")
-            cls="failed";
-
-
-        app.innerHTML += `
-
-        <div class="card ${cls}">
-
-        <h2>${p.name}</h2>
-
-        <p>
-        وضعیت:
-        <b>${p.status}</b>
-        </p>
-
-        <p>${p.message}</p>
-
-
-        <div class="metric">
-        <span>آخرین اجرا</span>
-        <span>${p.last_run ?? "-"}</span>
-        </div>
-
-
-        <div class="metric">
-        <span>دریافت</span>
-        <span>${p.metrics.total_fetched_posts ?? 0}</span>
-        </div>
-
-
-        <div class="metric">
-        <span>انتشار</span>
-        <span>${p.metrics.total_published_posts ?? 0}</span>
-        </div>
-
-
-        <div class="metric">
-        <span>کل دیتابیس</span>
-        <span>${p.db_stats.total_posts ?? 0}</span>
-        </div>
-
-
-        </div>
-
-        `;
-
-    });
-
+});
 
 }
 
-
 load();
-
 setInterval(load,5000);
 
+const btn=document.getElementById("theme-toggle");
+
+btn.onclick=()=>{
+
+document.body.classList.toggle("dark");
+
+localStorage.theme=document.body.classList.contains("dark")
+?"dark":"light";
+
+};
+
+if(localStorage.theme==="dark"){
+document.body.classList.add("dark");
+}

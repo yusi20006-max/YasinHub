@@ -2,13 +2,12 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 
 <title>YasinHub Dashboard</title>
 
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="style.css">
-
 </head>
 
 <body>
@@ -16,13 +15,42 @@
 <header>
 <h1>🟢 YasinHub Dashboard</h1>
 <p>نمایش وضعیت اکوسیستم یاسین</p>
+
+<button id="theme-toggle">
+🌙 تغییر تم
+</button>
 </header>
 
+<section id="summary"></section>
 
-<main id="app">
-در حال دریافت اطلاعات...
-</main>
+<table>
 
+<thead>
+
+<tr>
+
+<th>پروژه</th>
+
+<th>وضعیت</th>
+
+<th>آخرین اجرا</th>
+
+<th>دریافت</th>
+
+<th>انتشار</th>
+
+<th>Pending</th>
+
+<th>DB</th>
+
+</tr>
+
+</thead>
+
+<tbody id="table-body">
+</tbody>
+
+</table>
 
 <script src="app.js"></script>
 
