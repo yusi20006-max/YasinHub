@@ -37,15 +37,19 @@ def _format_last_run(report: ProjectReport) -> str:
 def format_report(reports: List[ProjectReport]) -> str:
     lines = []
     name_width = max((len(r.name) for r in reports), default=10)
+
     for r in reports:
         lines.append(
-            f"{r.name.ljust(name_width)}  پروسس: {_format_process(r.process_running):<10}  "
+            f"{r.name.ljust(name_width)}  وضعیت: {r.health_state:<10}  "
             f"آخرین اجرا: {_format_last_run(r)}"
         )
-        if r.last_message:
-            lines.append(f"{" " * name_width}  پیام: {r.last_message}")
-    return "\n".join(lines)
 
+        if r.last_message:
+            lines.append(
+                f"{' ' * name_width}  پیام: {r.last_message}"
+            )
+
+    return "\n".join(lines)
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="yasinhub")

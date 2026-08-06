@@ -23,7 +23,28 @@ class ProjectReport:
     last_run: Optional[str]
     last_success: Optional[bool]
     last_message: str
+    health_state: str
 
+
+
+def calculate_health_state(
+    process_running: Optional[bool],
+    last_run: Optional[str],
+    last_success: Optional[bool],
+) -> str:
+    if process_running is True:
+        return "RUNNING"
+
+    if last_success is False:
+        return "FAILED"
+
+    if last_success is True:
+        return "SUCCESS"
+
+    if last_run is None:
+        return "UNKNOWN"
+
+    return "IDLE"
 
 def build_report(
     projects: Optional[List[ProjectEntry]] = None,
@@ -47,6 +68,11 @@ def build_report(
                 last_run=status.last_run if status else None,
                 last_success=status.success if status else None,
                 last_message=status.message if status else "",
+                health_state=calculate_health_state(
+                    process_running,
+                    status.last_run if status else None,
+                    status.success if status else None,
+                ),
             )
         )
 
