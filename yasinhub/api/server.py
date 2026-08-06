@@ -96,6 +96,15 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         if self.handle_control(clean_path):
             return
 
+        if clean_path in ("/api/events/cleanup", "/api/events/clear"):
+            from ..events_engine import cleanup_events
+            success = cleanup_events()
+            self.send_json({
+                "success": success,
+                "message": "Event storage cleaned up successfully" if success else "Failed to clean up event storage"
+            })
+            return
+
         self.send_response(404)
         self.end_headers()
 
@@ -271,41 +280,42 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             self.send_json(data)
             return
 
+        if clean_path in ("/api/events/cleanup", "/api/events/clear"):
+            from ..events_engine import cleanup_events
+            success = cleanup_events()
+            self.send_json({
+                "success": success,
+                "message": "Event storage cleaned up successfully" if success else "Failed to clean up event storage"
+            })
+            return
+
         if clean_path == "/api/events":
-            events = []
-            log_dir = Path.home() / ".yasinhub" / "logs"
+            query_params = parse_qs(parsed_url.query)
+            service = query_params.get("service", [None])[0]
+            event_type = query_params.get("type", [None])[0] or query_params.get("event_type", [None])[0]
+            severity = query_params.get("severity", [None])[0]
+            level = query_params.get("level", [None])[0]
+            limit_str = query_params.get("limit", [None])[0]
 
-            for log_file in log_dir.glob("*.log"):
-                service = log_file.stem
+            try:
+                limit = int(limit_str) if limit_str is not None else 50
+            except ValueError:
+                limit = 50
 
-                try:
-                    lines = log_file.read_text(
-                        encoding="utf-8",
-                        errors="ignore"
-                    ).splitlines()[-50:]
-
-                    for line in reversed(lines):
-                        for name in [
-                            "ContentReceived",
-                            "AIProcessingCompleted",
-                            "PublishingCompleted",
-                            "DuplicateDetected",
-                            "ProcessingStarted",
-                            "ERROR"
-                        ]:
-                            if name in line:
-                                events.append({
-                                    "service": service,
-                                    "type": name,
-                                    "message": line
-                                })
-                                break
-                except Exception:
-                    pass
+            from ..events_engine import parse_events_from_logs, filter_events
+            all_events = parse_events_from_logs()
+            filtered = filter_events(
+                all_events,
+                service=service,
+                event_type=event_type,
+                severity=severity,
+                level=level,
+                limit=limit
+            )
 
             self.send_json({
-                "count": len(events),
-                "events": events[:50]
+                "count": len(filtered),
+                "events": filtered
             })
             return
 

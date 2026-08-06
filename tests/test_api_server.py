@@ -153,3 +153,45 @@ def test_api_metrics_endpoint_with_pid(mock_build_report, mock_is_alive, mock_re
     response_data = json.loads(dummy_handler.wfile.getvalue().decode("utf-8"))
     assert response_data["service"] == "yasin-ai"
     assert response_data["pid"] == 9999
+
+
+@patch("yasinhub.api.server.parse_qs")
+@patch("yasinhub.events_engine.parse_events_from_logs")
+@patch("yasinhub.events_engine.filter_events")
+def test_api_events_endpoint_with_params(mock_filter, mock_parse, mock_parse_qs, dummy_handler):
+    mock_parse_qs.return_value = {
+        "service": ["yasinrelay"],
+        "limit": ["10"]
+    }
+    mock_parse.return_value = [{"service": "yasinrelay", "type": "PublishingCompleted"}]
+    mock_filter.return_value = [{"service": "yasinrelay", "type": "PublishingCompleted"}]
+
+    dummy_handler.path = "/api/events?service=yasinrelay&limit=10"
+    dummy_handler.do_GET()
+
+    assert dummy_handler.response_code == 200
+    response_data = json.loads(dummy_handler.wfile.getvalue().decode("utf-8"))
+    assert response_data["count"] == 1
+    assert response_data["events"][0]["service"] == "yasinrelay"
+
+
+@patch("yasinhub.events_engine.cleanup_events")
+def test_api_events_cleanup_get(mock_cleanup, dummy_handler):
+    mock_cleanup.return_value = True
+    dummy_handler.path = "/api/events/cleanup"
+    dummy_handler.do_GET()
+
+    assert dummy_handler.response_code == 200
+    response_data = json.loads(dummy_handler.wfile.getvalue().decode("utf-8"))
+    assert response_data["success"] is True
+
+
+@patch("yasinhub.events_engine.cleanup_events")
+def test_api_events_cleanup_post(mock_cleanup, dummy_handler):
+    mock_cleanup.return_value = True
+    dummy_handler.path = "/api/events/clear"
+    dummy_handler.do_POST()
+
+    assert dummy_handler.response_code == 200
+    response_data = json.loads(dummy_handler.wfile.getvalue().decode("utf-8"))
+    assert response_data["success"] is True
