@@ -149,3 +149,70 @@ def test_cli_relay_subcommands_failure(capsys):
         assert code == 1
         captured = capsys.readouterr()
         assert "ناموفق بود" in captured.out
+
+
+def test_relay_integration_verify_channels_fallback_and_custom():
+    # ۱. سناریوی عدم اتصال کلاینت
+    with patch("yasinhub.relay_integration.HAS_YASIN_RELAY", False):
+        integration = RelayIntegration()
+        result = integration.verify_channels(["channel1"])
+        assert result["status"] == "error"
+        assert result["verified"] is False
+        assert "کلاینت متصل نیست" in result["error"]
+
+    # ۲. سناریوی کلاینت متصل بدون وجود متد verify_channels در SDK
+    mock_client_old = MagicMock(spec=[])  # فاقد متد
+    integration_old = RelayIntegration(client=mock_client_old)
+    result = integration_old.verify_channels(["channel1"])
+    assert result["status"] == "success"
+    assert result["verified"] is True
+    assert "channel1" in result["channels"]
+
+    # ۳. سناریوی کلاینت متصل همراه با متد verify_channels در SDK
+    mock_client_new = MagicMock()
+    mock_result = {"status": "success", "verified": True, "channels": ["channel2"]}
+    mock_client_new.verify_channels.return_value = mock_result
+    integration_new = RelayIntegration(client=mock_client_new)
+
+    result = integration_new.verify_channels(["channel2"])
+    assert result == mock_result
+    mock_client_new.verify_channels.assert_called_once_with(["channel2"])
+
+
+def test_cli_relay_verify_channels_success(capsys):
+    mock_client = MagicMock()
+    mock_result = {
+        "status": "success",
+        "verified": True,
+        "channels": ["@yusinews", "telegram_main"],
+        "message": "کانال‌ها با موفقیت تأیید شدند"
+    }
+    mock_client.verify_channels.return_value = mock_result
+    mock_integration = RelayIntegration(client=mock_client)
+
+    with patch("yasinhub.relay_integration.RelayIntegration", return_value=mock_integration):
+        code = cli_main(["relay", "verify-channels", "@yusinews", "telegram_main"])
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "وضعیت تأیید کانال‌ها" in captured.out
+        assert "وضعیت: success" in captured.out
+        assert "کانال‌های تأیید شده: @yusinews, telegram_main" in captured.out
+        assert "پیام: کانال‌ها با موفقیت تأیید شدند" in captured.out
+
+
+def test_cli_relay_verify_channels_failure(capsys):
+    mock_client = MagicMock()
+    mock_result = {
+        "status": "error",
+        "verified": False,
+        "error": "عدم دسترسی به کانال‌ها"
+    }
+    mock_client.verify_channels.return_value = mock_result
+    mock_integration = RelayIntegration(client=mock_client)
+
+    with patch("yasinhub.relay_integration.RelayIntegration", return_value=mock_integration):
+        code = cli_main(["relay", "verify-channels", "@invalid_channel"])
+        assert code == 1
+        captured = capsys.readouterr()
+        assert "تأیید کانال‌ها ناموفق بود" in captured.out
+        assert "عدم دسترسی به کانال‌ها" in captured.out

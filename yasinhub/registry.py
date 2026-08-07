@@ -51,7 +51,7 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasinrelay",
         path=str(Path.home() / "yasin-ecosystem" / "YasinRelay-main"),
-        process_pattern=None,
+        process_pattern="yasinrelay.cli",
         description="تلگرام -> AI -> ایتا",
         start_command="python3 -m yasinrelay.cli run"
     ),
@@ -115,6 +115,7 @@ def load_config(config_path: Optional[Path] = None) -> List[ProjectEntry]:
                 "projects": [
                     {
                         "name": p.name,
+                        "path": p.path,
                         "process_pattern": p.process_pattern,
                         "description": p.description,
                         "start_command": p.start_command,
