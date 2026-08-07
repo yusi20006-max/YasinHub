@@ -122,6 +122,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     event_p.add_argument("event_type", help="نوع رویداد")
     event_p.add_argument("payload", help="بدنه رویداد (به صورت JSON یا متن)")
 
+    # relay verify-channels [channels]
+    verify_p = relay_subparsers.add_parser("verify-channels", help="تأیید به‌روزرسانی کانال‌های سرویس رله")
+    verify_p.add_argument("channels", nargs="*", help="لیست کانال‌ها برای تأیید")
+
     # دستورات مدیریت فرآیندها
     start_parser = subparsers.add_parser("start", help="شروع اجرای یک یا همه سرویس‌ها")
     start_parser.add_argument("service", nargs="?", default="all", help="نام سرویس مورد نظر یا all")
@@ -287,6 +291,23 @@ def main(argv: Optional[List[str]] = None) -> int:
                 return 0
             else:
                 print(f"خطا: پردازش رویداد '{args.event_type}' ناموفق بود.")
+                return 1
+
+        elif args.action == "verify-channels":
+            result = integration.verify_channels(args.channels if args.channels else None)
+            if result.get("status") == "success" or result.get("verified") is True:
+                print("==================================================")
+                print("وضعیت تأیید کانال‌ها:")
+                print("==================================================")
+                print(f"وضعیت: {result.get('status', 'success')}")
+                if "channels" in result and result["channels"]:
+                    print(f"کانال‌های تأیید شده: {', '.join(result['channels'])}")
+                if "message" in result:
+                    print(f"پیام: {result['message']}")
+                print("==================================================")
+                return 0
+            else:
+                print(f"خطا: تأیید کانال‌ها ناموفق بود. {result.get('error', 'خطای نامشخص')}")
                 return 1
 
     elif args.command == "doctor":

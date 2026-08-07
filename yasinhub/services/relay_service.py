@@ -22,3 +22,6 @@ class RelayService:
             event_type,
             payload
         )
+
+    def verify_channels(self, channels=None):
+        return self.relay.verify_channels(channels)

@@ -64,6 +64,7 @@ class ConfigManager:
             config_data["projects"] = [
                 {
                     "name": p.name,
+                    "path": p.path,
                     "process_pattern": p.process_pattern,
                     "description": p.description,
                     "start_command": p.start_command,
@@ -123,7 +124,7 @@ class ConfigManager:
                 seen_names.add(name)
 
                 # اعتبارسنجی نوع فیلدهای اختیاری پروژه
-                for field in ("process_pattern", "description", "start_command", "stop_command"):
+                for field in ("path", "process_pattern", "description", "start_command", "stop_command"):
                     val = proj.get(field)
                     if val is not None and not isinstance(val, str):
                         raise ValidationError(f"فیلد {field} در پروژه '{name}' باید رشته باشد.")
