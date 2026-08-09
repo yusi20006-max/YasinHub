@@ -12,26 +12,38 @@ logger = logging.getLogger(__name__)
 
 try:
     from yasin_core.sdk import YasinCoreClient
+    from yasin_core.compatibility import is_compatible
     HAS_YASIN_CORE = True
 except ImportError:
     YasinCoreClient = None
+    is_compatible = None
     HAS_YASIN_CORE = False
 
-# محدوده نسخه‌های سازگار SDK
-COMPATIBLE_MAJOR_VERSIONS = {"1"}
+# محدوده نسخه‌ی سازگار Core که این نسخه از Hub با آن تست و تأیید شده است.
+# از موتور semver واقعی Core استفاده می‌کند (yasin_core.compatibility.is_compatible)
+# به‌جای یک لیست ثابتِ major version که با هر ارتقای Core باید دستی به‌روزرسانی شود.
+CORE_VERSION_COMPAT = ">=1.0.0"
 
 
 def validate_sdk_compatibility(version: str) -> bool:
     """
-    بررسی سازگاری نسخه SDK هسته.
-    در حال حاضر، نسخه‌های سری 1.x.x معتبر و سازگار تلقی می‌شوند.
+    بررسی سازگاری نسخه SDK هسته با استفاده از موتور semver واقعی Core.
     """
     if not version:
         return False
+    if is_compatible is not None:
+        try:
+            return is_compatible(CORE_VERSION_COMPAT, version)
+        except Exception:
+            return False
+    # fallback محافظه‌کارانه اگر ماژول compatibility در دسترس نبود
     parts = version.split(".")
     if not parts:
         return False
-    return parts[0] in COMPATIBLE_MAJOR_VERSIONS
+    try:
+        return int(parts[0]) >= 1
+    except ValueError:
+        return False
 
 
 class CoreIntegration:

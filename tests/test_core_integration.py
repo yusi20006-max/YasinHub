@@ -12,10 +12,11 @@ from yasinhub.cli import main as cli_main
 
 
 def test_validate_sdk_compatibility():
-    # تست سازگاری نسخه‌ها
+    # تست سازگاری نسخه‌ها (بر پایه موتور semver واقعی Core: >=1.0.0)
     assert validate_sdk_compatibility("1.0.0") is True
     assert validate_sdk_compatibility("1.5.2") is True
-    assert validate_sdk_compatibility("2.0.0") is False
+    assert validate_sdk_compatibility("3.3.0") is True
+    assert validate_sdk_compatibility("0.5.0") is False
     assert validate_sdk_compatibility("") is False
     assert validate_sdk_compatibility(None) is False
 
@@ -65,7 +66,7 @@ def test_core_integration_with_mocked_client():
 
 def test_core_integration_with_incompatible_version():
     mock_client = MagicMock()
-    mock_client.get_version.return_value = "2.0.0"
+    mock_client.get_version.return_value = "0.5.0"
 
     integration = CoreIntegration(client=mock_client)
     health = integration.check_health()
@@ -120,6 +121,7 @@ def test_cli_core_command_installed_and_healthy(capsys):
 def test_real_sdk_integration():
     try:
         from yasin_core.sdk import YasinCoreClient
+        from yasin_core.version import VERSION
         real_client_available = True
     except ImportError:
         real_client_available = False
@@ -131,7 +133,7 @@ def test_real_sdk_integration():
         health = integration.check_health()
         assert health["connected"] is True
         assert health["compatibility"] is True
-        assert health["version"] == "1.0.0"
+        assert health["version"] == VERSION
 
         runtime = integration.get_runtime_info()
         assert "agents" in runtime
