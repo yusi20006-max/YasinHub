@@ -300,7 +300,7 @@ def test_e2e_error_handling_and_compatibility(tmp_path):
 
     # 2. Test Incompatible Core SDK Version
     mock_incompatible_core = MagicMock()
-    mock_incompatible_core.get_version.return_value = "2.3.0"  # Compatible series is 1.x.x
+    mock_incompatible_core.get_version.return_value = "0.5.0"  # Below the >=1.0.0 compatibility floor
     core_incompat = CoreIntegration(client=mock_incompatible_core)
     health_incompat = core_incompat.check_health()
     assert health_incompat["status"] == "unhealthy"
