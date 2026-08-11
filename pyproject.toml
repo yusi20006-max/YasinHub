@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yasin-hub"
+dynamic = ["version"]
+description = "YasinHub: control-plane / orchestration hub for the Yasin AI Ecosystem"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pyyaml>=6.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "yasinhub.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["yasinhub*"]
