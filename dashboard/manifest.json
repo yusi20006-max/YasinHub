@@ -1,10 +1,25 @@
 {
   "name": "YasinHub Dashboard",
   "short_name": "YasinHub",
-  "start_url": "./index.html",
+  "start_url": "/dashboard/index.html",
+  "scope": "/dashboard/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0f9d58",
   "lang": "fa",
-  "dir": "rtl"
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/dashboard/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/dashboard/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }

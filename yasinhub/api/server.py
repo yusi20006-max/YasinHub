@@ -354,6 +354,10 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                     content_type = "application/javascript"
                 elif file_path.suffix == ".json":
                     content_type = "application/json"
+                elif file_path.suffix == ".png":
+                    content_type = "image/png"
+                elif file_path.suffix == ".svg":
+                    content_type = "image/svg+xml"
                 else:
                     content_type = "application/octet-stream"
 
