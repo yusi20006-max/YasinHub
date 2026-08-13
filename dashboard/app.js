@@ -79,7 +79,11 @@ async function getJSON(url) {
         if (!res.ok) {
             return { _error: true };
         }
-        return await res.json();
+        try {
+            return await res.json();
+        } catch (jsonErr) {
+            return { _error: true };
+        }
     } catch (e) {
         return { _error: true };
     }
@@ -89,17 +93,17 @@ async function getJSON(url) {
 async function loadDashboard() {
     const data = await getJSON("/api/dashboard");
     if (data._offline || data._error) {
-        // Only show fallbacks if no valid data is already loaded in DOM (preserve last rendered data)
         const totalSrv = document.getElementById("total-services");
-        if (!totalSrv || totalSrv.textContent === "0" || totalSrv.textContent === "") {
-            setSafeText("total-services", "-");
-            setSafeText("success", "-");
-            setSafeText("running", "-");
-            setSafeText("failed", "-");
-            setSafeText("unknown", "-");
-            setSafeText("total-posts", "-");
-            setSafeText("published", "-");
-            setSafeText("pending", "-");
+        if (!totalSrv || totalSrv.textContent === "0" || totalSrv.textContent === "" || totalSrv.textContent === "-" || totalSrv.textContent === "آفلاین" || totalSrv.textContent === "خطای سرور") {
+            const fallbackText = data._offline ? "آفلاین" : "خطای سرور";
+            setSafeText("total-services", fallbackText);
+            setSafeText("success", fallbackText);
+            setSafeText("running", fallbackText);
+            setSafeText("failed", fallbackText);
+            setSafeText("unknown", fallbackText);
+            setSafeText("total-posts", fallbackText);
+            setSafeText("published", fallbackText);
+            setSafeText("pending", fallbackText);
         }
         return;
     }
@@ -119,16 +123,16 @@ async function loadDashboard() {
 async function loadMetrics() {
     const data = await getJSON("/api/metrics/yasinrelay");
     if (data._offline || data._error) {
-        // Only show fallbacks if no valid data is already loaded in DOM
         const cpuEl = document.getElementById("cpu");
-        if (!cpuEl || cpuEl.textContent === "0" || cpuEl.textContent === "") {
-            setSafeText("cpu", "-");
-            setSafeText("memory", "-");
-            setSafeText("uptime", "-");
-            setSafeText("fetched", "-");
-            setSafeText("metrics-published", "-");
-            setSafeText("metrics-failed", "-");
-            setSafeText("error-rate", "-");
+        if (!cpuEl || cpuEl.textContent === "0" || cpuEl.textContent === "" || cpuEl.textContent === "-" || cpuEl.textContent === "آفلاین" || cpuEl.textContent === "خطای سرور") {
+            const fallbackText = data._offline ? "آفلاین" : "خطای سرور";
+            setSafeText("cpu", fallbackText);
+            setSafeText("memory", fallbackText);
+            setSafeText("uptime", fallbackText);
+            setSafeText("fetched", fallbackText);
+            setSafeText("metrics-published", fallbackText);
+            setSafeText("metrics-failed", fallbackText);
+            setSafeText("error-rate", fallbackText);
         }
         return;
     }
@@ -152,9 +156,12 @@ async function loadServices() {
     if (!body) return;
 
     if (servicesData._offline || servicesData._error || statusData._offline || statusData._error) {
-        // Only show fallback if body is currently empty/not loaded (preserve last valid services list)
-        if (!body.innerHTML || body.children.length === 0) {
-            body.innerHTML = `<tr><td colspan="3" style="text-align: center; color: red; font-weight: bold;">عدم اتصال به سرور (آفلاین)</td></tr>`;
+        if (!body.innerHTML || body.children.length === 0 || body.innerHTML.includes("آفلاین") || body.innerHTML.includes("خطای سرور")) {
+            if (servicesData._offline || statusData._offline) {
+                body.innerHTML = `<tr><td colspan="3" style="text-align: center; color: red; font-weight: bold;">عدم اتصال به سرور (آفلاین)</td></tr>`;
+            } else {
+                body.innerHTML = `<tr><td colspan="3" style="text-align: center; color: red; font-weight: bold;">خطا در دریافت اطلاعات سرویس‌ها (خطای سرور)</td></tr>`;
+            }
         }
         return;
     }
@@ -229,11 +236,31 @@ async function control(service, action) {
         alert("خطا: شما آفلاین هستید و امکان کنترل سرویس‌ها وجود ندارد.");
         return;
     }
-    await fetch(`/api/control/${service}/${action}`, {
-        method: "POST"
-    });
-    // Immediately refresh the dashboard states
-    await refresh();
+    try {
+        const response = await fetch(`/api/control/${service}/${action}`, {
+            method: "POST"
+        });
+        if (!response.ok) {
+            alert(`خطا: عملیات کنترل سرویس ناموفق بود (کد خطا: ${response.status})`);
+            return;
+        }
+        let data;
+        try {
+            data = await response.json();
+        } catch (jsonErr) {
+            alert("خطا: پاسخ سرور نامعتبر است (خطای JSON)");
+            return;
+        }
+        if (data && data.success === true) {
+            // Immediately refresh the dashboard states
+            await refresh();
+        } else {
+            const errMsg = (data && data.error) ? data.error : "دلیل نامشخص";
+            alert(`خطا در کنترل سرویس: ${errMsg}`);
+        }
+    } catch (err) {
+        alert("خطا: امکان برقراری ارتباط با سرور برای کنترل سرویس وجود ندارد.");
+    }
 }
 
 // Load events log list
@@ -243,9 +270,12 @@ async function loadEvents() {
     if (!box) return;
 
     if (data._offline || data._error) {
-        // Only show fallback if events box is currently empty/not loaded
-        if (!box.innerHTML || box.children.length === 0) {
-            box.innerHTML = `<div style="padding: 20px; text-align: center; color: red; font-weight: bold;">خطا در دریافت رویدادها (آفلاین)</div>`;
+        if (!box.innerHTML || box.children.length === 0 || box.innerHTML.includes("آفلاین") || box.innerHTML.includes("خطای سرور")) {
+            if (data._offline) {
+                box.innerHTML = `<div style="padding: 20px; text-align: center; color: red; font-weight: bold;">خطا در دریافت رویدادها (آفلاین)</div>`;
+            } else {
+                box.innerHTML = `<div style="padding: 20px; text-align: center; color: red; font-weight: bold;">خطا در دریافت رویدادها (خطای سرور)</div>`;
+            }
         }
         return;
     }
@@ -334,9 +364,12 @@ async function loadLogs() {
     const logsPre = document.getElementById("logs");
     if (logsPre) {
         if (data._offline || data._error) {
-            // Only show fallback if empty or previously failed/unloaded
-            if (!logsPre.innerHTML || logsPre.innerHTML.includes("لاگی برای نمایش") || logsPre.innerHTML.includes("خطا در اتصال")) {
-                logsPre.innerHTML = '<span style="color: #f87171; font-weight: bold;">خطا در اتصال به سرور و دریافت لاگ‌ها (آفلاین)</span>';
+            if (!logsPre.innerHTML || logsPre.innerHTML.includes("لاگی برای نمایش") || logsPre.innerHTML.includes("خطا در اتصال") || logsPre.innerHTML.includes("خطای سرور")) {
+                if (data._offline) {
+                    logsPre.innerHTML = '<span style="color: #f87171; font-weight: bold;">خطا در اتصال به سرور و دریافت لاگ‌ها (آفلاین)</span>';
+                } else {
+                    logsPre.innerHTML = '<span style="color: #f87171; font-weight: bold;">خطا در اتصال به سرور و دریافت لاگ‌ها (خطای سرور)</span>';
+                }
             }
             return;
         }
