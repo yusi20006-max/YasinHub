@@ -10,13 +10,17 @@ const ASSETS = [
     "/dashboard/icon-512.png"
 ];
 
-// On install, cache all application shell assets
+// On install, cache all application shell assets with robust per-asset tolerance
 self.addEventListener("install", event => {
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache => {
-            console.log("[ServiceWorker] Caching App Shell");
-            // Use silent/individual caching if some files fail, or standard cache.addAll
-            return cache.addAll(ASSETS);
+            console.log("[ServiceWorker] Caching App Shell assets...");
+            const cachePromises = ASSETS.map(asset => {
+                return cache.add(asset).catch(err => {
+                    console.warn(`[ServiceWorker] Failed to cache asset: ${asset}`, err);
+                });
+            });
+            return Promise.all(cachePromises);
         }).then(() => {
             return self.skipWaiting();
         })
@@ -68,8 +72,16 @@ self.addEventListener("fetch", event => {
 
             // Fallback to fetch
             return fetch(event.request).then(networkResponse => {
-                // Cache valid GET responses for dashboard resources that might not be in ASSETS list
-                if (networkResponse && networkResponse.status === 200 && networkResponse.type === "basic") {
+                // Only cache verified static shell assets or static file types, not broad dynamic GET outputs
+                const isStaticAsset = ASSETS.includes(url.pathname) ||
+                                      url.pathname.endsWith(".html") ||
+                                      url.pathname.endsWith(".css") ||
+                                      url.pathname.endsWith(".js") ||
+                                      url.pathname.endsWith(".json") ||
+                                      url.pathname.endsWith(".png") ||
+                                      url.pathname.endsWith(".svg");
+
+                if (networkResponse && networkResponse.status === 200 && networkResponse.type === "basic" && isStaticAsset) {
                     const responseToCache = networkResponse.clone();
                     caches.open(CACHE_NAME).then(cache => {
                         cache.put(event.request, responseToCache);

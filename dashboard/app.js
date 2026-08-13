@@ -17,6 +17,25 @@ if (menuToggle && sidebar) {
     };
 }
 
+// Apply offline-stale styling to containers to disable interactivity and fade content
+function applyOfflineVisuals(isOffline) {
+    const containers = [
+        document.getElementById("summary"),
+        document.querySelector("table"),
+        document.getElementById("events"),
+        document.getElementById("logs")
+    ];
+    containers.forEach(el => {
+        if (el) {
+            if (isOffline) {
+                el.classList.add("offline-stale");
+            } else {
+                el.classList.remove("offline-stale");
+            }
+        }
+    });
+}
+
 // Connection Status Indicator
 function updateConnectionStatus() {
     const statusEl = document.getElementById("connection-status");
@@ -25,9 +44,11 @@ function updateConnectionStatus() {
     if (navigator.onLine) {
         statusEl.textContent = "🟢 آنلاین";
         statusEl.className = "status-online";
+        applyOfflineVisuals(false);
     } else {
         statusEl.textContent = "🔴 آفلاین (عدم اتصال به سرور)";
         statusEl.className = "status-offline";
+        applyOfflineVisuals(true);
     }
 }
 
@@ -38,7 +59,6 @@ window.addEventListener("online", () => {
 
 window.addEventListener("offline", () => {
     updateConnectionStatus();
-    refresh();
 });
 
 // Helper to safely set text content of elements
@@ -69,14 +89,18 @@ async function getJSON(url) {
 async function loadDashboard() {
     const data = await getJSON("/api/dashboard");
     if (data._offline || data._error) {
-        setSafeText("total-services", "آفلاین");
-        setSafeText("success", "آفلاین");
-        setSafeText("running", "آفلاین");
-        setSafeText("failed", "آفلاین");
-        setSafeText("unknown", "آفلاین");
-        setSafeText("total-posts", "آفلاین");
-        setSafeText("published", "آفلاین");
-        setSafeText("pending", "آفلاین");
+        // Only show fallbacks if no valid data is already loaded in DOM (preserve last rendered data)
+        const totalSrv = document.getElementById("total-services");
+        if (!totalSrv || totalSrv.textContent === "0" || totalSrv.textContent === "") {
+            setSafeText("total-services", "-");
+            setSafeText("success", "-");
+            setSafeText("running", "-");
+            setSafeText("failed", "-");
+            setSafeText("unknown", "-");
+            setSafeText("total-posts", "-");
+            setSafeText("published", "-");
+            setSafeText("pending", "-");
+        }
         return;
     }
     const d = data.dashboard || {};
@@ -95,13 +119,17 @@ async function loadDashboard() {
 async function loadMetrics() {
     const data = await getJSON("/api/metrics/yasinrelay");
     if (data._offline || data._error) {
-        setSafeText("cpu", "آفلاین");
-        setSafeText("memory", "آفلاین");
-        setSafeText("uptime", "آفلاین");
-        setSafeText("fetched", "آفلاین");
-        setSafeText("metrics-published", "آفلاین");
-        setSafeText("metrics-failed", "آفلاین");
-        setSafeText("error-rate", "آفلاین");
+        // Only show fallbacks if no valid data is already loaded in DOM
+        const cpuEl = document.getElementById("cpu");
+        if (!cpuEl || cpuEl.textContent === "0" || cpuEl.textContent === "") {
+            setSafeText("cpu", "-");
+            setSafeText("memory", "-");
+            setSafeText("uptime", "-");
+            setSafeText("fetched", "-");
+            setSafeText("metrics-published", "-");
+            setSafeText("metrics-failed", "-");
+            setSafeText("error-rate", "-");
+        }
         return;
     }
     const m = data.metrics || {};
@@ -124,7 +152,10 @@ async function loadServices() {
     if (!body) return;
 
     if (servicesData._offline || servicesData._error || statusData._offline || statusData._error) {
-        body.innerHTML = `<tr><td colspan="3" style="text-align: center; color: red; font-weight: bold;">عدم اتصال به سرور (آفلاین)</td></tr>`;
+        // Only show fallback if body is currently empty/not loaded (preserve last valid services list)
+        if (!body.innerHTML || body.children.length === 0) {
+            body.innerHTML = `<tr><td colspan="3" style="text-align: center; color: red; font-weight: bold;">عدم اتصال به سرور (آفلاین)</td></tr>`;
+        }
         return;
     }
 
@@ -212,7 +243,10 @@ async function loadEvents() {
     if (!box) return;
 
     if (data._offline || data._error) {
-        box.innerHTML = `<div style="padding: 20px; text-align: center; color: red; font-weight: bold;">خطا در دریافت رویدادها (آفلاین)</div>`;
+        // Only show fallback if events box is currently empty/not loaded
+        if (!box.innerHTML || box.children.length === 0) {
+            box.innerHTML = `<div style="padding: 20px; text-align: center; color: red; font-weight: bold;">خطا در دریافت رویدادها (آفلاین)</div>`;
+        }
         return;
     }
 
@@ -300,7 +334,10 @@ async function loadLogs() {
     const logsPre = document.getElementById("logs");
     if (logsPre) {
         if (data._offline || data._error) {
-            logsPre.innerHTML = '<span style="color: #f87171; font-weight: bold;">خطا در اتصال به سرور و دریافت لاگ‌ها (آفلاین)</span>';
+            // Only show fallback if empty or previously failed/unloaded
+            if (!logsPre.innerHTML || logsPre.innerHTML.includes("لاگی برای نمایش") || logsPre.innerHTML.includes("خطا در اتصال")) {
+                logsPre.innerHTML = '<span style="color: #f87171; font-weight: bold;">خطا در اتصال به سرور و دریافت لاگ‌ها (آفلاین)</span>';
+            }
             return;
         }
         const lines = data.lines || [];
