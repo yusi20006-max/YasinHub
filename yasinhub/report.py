@@ -102,9 +102,20 @@ def build_report(
                     remove_pid(project.name)
                     process_running = False
 
-        # ۲. اگر بر اساس PID مشخص نشد، سراغ الگوی پروسس برویم
-        if process_running is None and project.process_pattern:
-            process_running = check_process(project.process_pattern).running
+        # ۲. اگر بر اساس PID مشخص نشد یا فرآیند طبق PID مرده بود، سراغ الگوی پروسس برویم
+        if (process_running is None or process_running is False) and project.process_pattern:
+            pat_status = check_process(project.process_pattern)
+            if pat_status.running:
+                process_running = True
+                # بازیابی خودکار و ذخیره PID جدید منطبق شده
+                if pat_status.pids:
+                    try:
+                        save_pid(project.name, int(pat_status.pids[0]))
+                    except Exception:
+                        pass
+            else:
+                if project.process_pattern:
+                    process_running = False
 
         status: Optional[StatusRecord] = read_status(project.name, status_dir=status_dir)
 

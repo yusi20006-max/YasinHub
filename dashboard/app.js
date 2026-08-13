@@ -114,6 +114,10 @@ async function loadServices() {
                 color = "blue";
             } else if (state === "FAILED") {
                 color = "red";
+            } else if (state === "STALE") {
+                color = "orange";
+            } else if (state === "IDLE") {
+                color = "purple";
             }
         }
 
@@ -153,6 +157,17 @@ async function loadEvents() {
     box.innerHTML = "";
 
     const events = data.events || [];
+    if (events.length === 0) {
+        const item = document.createElement("div");
+        item.style.padding = "20px";
+        item.style.textAlign = "center";
+        item.style.color = "#888";
+        item.style.fontSize = "0.95em";
+        item.textContent = "هیچ رویدادی ثبت نشده است.";
+        box.appendChild(item);
+        return;
+    }
+
     events.slice(0, 10).forEach(e => {
         let color = "#777";
 
@@ -223,6 +238,10 @@ async function loadLogs() {
     const logsPre = document.getElementById("logs");
     if (logsPre) {
         const lines = data.lines || [];
+        if (lines.length === 0) {
+            logsPre.innerHTML = '<span style="color: #888; font-style: italic;">لاگی برای نمایش وجود ندارد یا فایل لاگ خالی است.</span>';
+            return;
+        }
 
         // Escape HTML and highlight ERROR/WARNING lines
         const formattedLines = lines.map(line => {
