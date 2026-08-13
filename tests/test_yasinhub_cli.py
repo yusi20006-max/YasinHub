@@ -67,3 +67,45 @@ def test_cli_process_commands_progress_reporting(capsys):
         assert "mock_svc" in captured.out
         assert "با موفقیت پردازش شد" in captured.out
         mock_start.assert_called_once_with(mock_project)
+
+
+def test_cli_feed_subcommands(capsys):
+    """Verify that the new feed subcommand executes status, articles, and article actions correctly."""
+    from yasinhub.adapters.feed_adapter import HubArticle
+
+    mock_service_instance = MagicMock()
+    mock_service_instance.health.return_value = {"service": "YasinFeed", "status": "healthy"}
+    mock_service_instance.version.return_value = "1.9.9"
+    mock_service_instance.repository.client.stats.return_value = {"total_items": 100}
+    mock_service_instance.repository.client.routes.return_value = ["/api/health"]
+
+    mock_service_instance.get_articles.return_value = [
+        HubArticle(id="1", title="Article 1", content="Content 1", published_at="2026-08-01", status="done")
+    ]
+    mock_service_instance.get_article.return_value = HubArticle(
+        id="42", title="Special Article", content="Special Content", published_at="2026-08-02", status="pending"
+    )
+
+    with patch("yasinhub.services.feed_service.FeedService", return_value=mock_service_instance):
+        # 1. feed status
+        exit_code = cli_main(["feed", "status"])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "وضعیت سرویس فیدخوان یاسین YasinFeed" in captured.out
+        assert "سالم (Healthy)" in captured.out
+        assert "1.9.9" in captured.out
+        assert "total_items: 100" in captured.out
+
+        # 2. feed articles
+        exit_code = cli_main(["feed", "articles", "--page", "1", "--limit", "5"])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "لیست مقالات فیدخوان" in captured.out
+        assert "Article 1" in captured.out
+
+        # 3. feed article
+        exit_code = cli_main(["feed", "article", "42"])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "Special Article" in captured.out
+        assert "Special Content" in captured.out

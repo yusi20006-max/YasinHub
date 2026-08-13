@@ -126,6 +126,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     verify_p = relay_subparsers.add_parser("verify-channels", help="تأیید به‌روزرسانی کانال‌های سرویس رله")
     verify_p.add_argument("channels", nargs="*", help="لیست کانال‌ها برای تأیید")
 
+    # دستور مدیریت و مانیتورینگ سرویس فیدخوان یاسین (YasinFeed)
+    feed_parser = subparsers.add_parser("feed", help="مدیریت و مانیتورینگ سرویس فیدخوان یاسین (YasinFeed)")
+    feed_subparsers = feed_parser.add_subparsers(dest="action", required=True)
+
+    # feed status
+    feed_subparsers.add_parser("status", help="نمایش وضعیت و سلامت فیدخوان")
+
+    # feed articles [--page PAGE] [--limit LIMIT]
+    articles_p = feed_subparsers.add_parser("articles", help="نمایش لیست آخرین مقالات دریافت شده")
+    articles_p.add_argument("--page", "-p", type=int, default=1, help="شماره صفحه")
+    articles_p.add_argument("--limit", "-l", type=int, default=10, help="تعداد مقالات در هر صفحه")
+
+    # feed article <article_id>
+    article_p = feed_subparsers.add_parser("article", help="نمایش جزئیات یک مقاله خاص")
+    article_p.add_argument("article_id", help="شناسه مقاله")
+
     # دستورات مدیریت فرآیندها
     start_parser = subparsers.add_parser("start", help="شروع اجرای یک یا همه سرویس‌ها")
     start_parser.add_argument("service", nargs="?", default="all", help="نام سرویس مورد نظر یا all")
@@ -309,6 +325,100 @@ def main(argv: Optional[List[str]] = None) -> int:
             else:
                 print(f"خطا: تأیید کانال‌ها ناموفق بود. {result.get('error', 'خطای نامشخص')}")
                 return 1
+
+    elif args.command == "feed":
+        from .services.feed_service import FeedService
+        service = FeedService()
+
+        if args.action == "status":
+            health_info = service.health()
+            version_str = service.version()
+
+            print("==================================================")
+            print("وضعیت سرویس فیدخوان یاسین YasinFeed")
+            print("==================================================")
+
+            raw_status = health_info.get("status")
+            if raw_status == "healthy" or raw_status == "ok":
+                status_str = "سالم (Healthy)"
+            else:
+                status_str = "ناسالم (Unhealthy)"
+
+            print(f"وضعیت فعلی: {status_str}")
+            print(f"نسخه سرویس: {version_str}")
+
+            if "error" in health_info and health_info["error"]:
+                print(f"خطا: {health_info['error']}")
+
+            # دریافت آمار و مسیرها در صورت سالم بودن
+            if raw_status in ("healthy", "ok"):
+                try:
+                    stats = service.repository.client.stats()
+                    if stats:
+                        print("آمار پردازش:")
+                        for k, v in stats.items():
+                            print(f"  {k}: {v}")
+                except Exception:
+                    pass
+
+                try:
+                    routes = service.repository.client.routes()
+                    if routes:
+                        print(f"مسیرهای API: {', '.join(routes)}")
+                except Exception:
+                    pass
+
+            print("==================================================")
+            return 0 if raw_status in ("healthy", "ok") else 1
+
+        elif args.action == "articles":
+            from rich.console import Console
+            from rich.table import Table
+
+            console = Console()
+            articles = service.get_articles(page=args.page, limit=args.limit)
+
+            if not articles:
+                console.print("[yellow]هیچ مقاله‌ای یافت نشد یا خطا در برقراری ارتباط رخ داده است.[/yellow]")
+                return 1
+
+            table = Table(title=f"لیست مقالات فیدخوان (صفحه {args.page})", show_header=True, header_style="bold cyan")
+            table.add_column("شناسه (ID)", style="dim")
+            table.add_column("عنوان (Title)")
+            table.add_column("تاریخ انتشار (Published)")
+            table.add_column("وضعیت بازنویسی (Status)")
+
+            for art in articles:
+                table.add_row(
+                    str(art.id),
+                    str(art.title),
+                    str(art.published_at),
+                    str(art.status)
+                )
+
+            console.print(table)
+            return 0
+
+        elif args.action == "article":
+            from rich.console import Console
+            from rich.panel import Panel
+
+            console = Console()
+            art = service.get_article(args.article_id)
+
+            if not art:
+                console.print(f"[bold red]خطا: مقاله‌ای با شناسه '{args.article_id}' یافت نشد.[/bold red]")
+                return 1
+
+            console.print(Panel(
+                f"[bold cyan]عنوان:[/bold cyan] {art.title}\n"
+                f"[bold cyan]تاریخ:[/bold cyan] {art.published_at}\n"
+                f"[bold cyan]وضعیت بازنویسی:[/bold cyan] {art.status}\n\n"
+                f"[bold cyan]محتوا:[/bold cyan]\n{art.content}",
+                title=f"جزئیات مقاله {art.id}",
+                expand=False
+            ))
+            return 0
 
     elif args.command == "doctor":
         from .services.doctor_service import DoctorService

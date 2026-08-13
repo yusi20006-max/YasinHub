@@ -110,6 +110,18 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
                     pass
             return True
 
+    # بررسی صحت وجود دایرکتوری در صورت تعریف شدن
+    if project.path:
+        p_path = Path(project.path)
+        if not p_path.exists():
+            print(f"خطا: مسیر تعریف شده برای سرویس {project.name} وجود ندارد: {project.path}")
+            try:
+                from .status_store import write_status
+                write_status(project.name, success=False, message=f"خطا: دایرکتوری سرویس یافت نشد: {project.path}")
+            except Exception:
+                pass
+            return False
+
     # آماده‌سازی مسیر لاگ از لایه پیکربندی
     if logs_dir is None:
         from .config_manager import get_logs_dir
@@ -156,6 +168,11 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
             print(f"خطا: سرویس {project.name} بلافاصله با کد خروج {proc.poll()} متوقف شد.")
             remove_pid(project.name)
             log_file.close()
+            try:
+                from .status_store import write_status
+                write_status(project.name, success=False, message=f"خطا: پروسس با کد خروج {proc.poll()} متوقف شد.")
+            except Exception:
+                pass
             return False
 
         print(f"سرویس {project.name} با موفقیت در پس‌زمینه استارت شد.")
@@ -165,6 +182,11 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
         print(f"خطا در اجرای دستور شروع سرویس {project.name}: {e}")
         remove_pid(project.name)
         log_file.close()
+        try:
+            from .status_store import write_status
+            write_status(project.name, success=False, message=f"خطا در راه‌اندازی: {str(e)}")
+        except Exception:
+            pass
         return False
 
 
