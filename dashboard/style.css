@@ -189,6 +189,42 @@ main {
 
 }
 
+#connection-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85em;
+    font-weight: bold;
+    padding: 6px 12px;
+    border-radius: 20px;
+    transition: all 0.3s ease;
+    margin-bottom: 15px;
+}
+.status-online {
+    background: #dcfce7;
+    color: #166534;
+}
+.status-offline {
+    background: #fee2e2;
+    color: #991b1b;
+}
+.dark .status-online {
+    background: #064e3b;
+    color: #34d399;
+}
+.dark .status-offline {
+    background: #7f1d1d;
+    color: #fca5a5;
+}
+
+.offline-stale {
+    opacity: 0.65;
+    pointer-events: none;
+    cursor: not-allowed;
+    filter: grayscale(30%);
+    transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
 
 @media(max-width:500px){
 

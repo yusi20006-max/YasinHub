@@ -17,6 +17,50 @@ if (menuToggle && sidebar) {
     };
 }
 
+// Apply offline-stale styling to containers to disable interactivity and fade content
+function applyOfflineVisuals(isOffline) {
+    const containers = [
+        document.getElementById("summary"),
+        document.querySelector("table"),
+        document.getElementById("events"),
+        document.getElementById("logs")
+    ];
+    containers.forEach(el => {
+        if (el) {
+            if (isOffline) {
+                el.classList.add("offline-stale");
+            } else {
+                el.classList.remove("offline-stale");
+            }
+        }
+    });
+}
+
+// Connection Status Indicator
+function updateConnectionStatus() {
+    const statusEl = document.getElementById("connection-status");
+    if (!statusEl) return;
+
+    if (navigator.onLine) {
+        statusEl.textContent = "🟢 آنلاین";
+        statusEl.className = "status-online";
+        applyOfflineVisuals(false);
+    } else {
+        statusEl.textContent = "🔴 آفلاین (عدم اتصال به سرور)";
+        statusEl.className = "status-offline";
+        applyOfflineVisuals(true);
+    }
+}
+
+window.addEventListener("online", () => {
+    updateConnectionStatus();
+    refresh();
+});
+
+window.addEventListener("offline", () => {
+    updateConnectionStatus();
+});
+
 // Helper to safely set text content of elements
 function setSafeText(id, text) {
     const el = document.getElementById(id);
@@ -27,20 +71,42 @@ function setSafeText(id, text) {
 
 // Helper to fetch JSON
 async function getJSON(url) {
+    if (!navigator.onLine) {
+        return { _offline: true };
+    }
     try {
         const res = await fetch(API + url);
         if (!res.ok) {
-            return {};
+            return { _error: true };
         }
-        return await res.json();
+        try {
+            return await res.json();
+        } catch (jsonErr) {
+            return { _error: true };
+        }
     } catch (e) {
-        return {};
+        return { _error: true };
     }
 }
 
 // Load Dashboard summary metrics
 async function loadDashboard() {
     const data = await getJSON("/api/dashboard");
+    if (data._offline || data._error) {
+        const totalSrv = document.getElementById("total-services");
+        if (!totalSrv || totalSrv.textContent === "0" || totalSrv.textContent === "" || totalSrv.textContent === "-" || totalSrv.textContent === "آفلاین" || totalSrv.textContent === "خطای سرور") {
+            const fallbackText = data._offline ? "آفلاین" : "خطای سرور";
+            setSafeText("total-services", fallbackText);
+            setSafeText("success", fallbackText);
+            setSafeText("running", fallbackText);
+            setSafeText("failed", fallbackText);
+            setSafeText("unknown", fallbackText);
+            setSafeText("total-posts", fallbackText);
+            setSafeText("published", fallbackText);
+            setSafeText("pending", fallbackText);
+        }
+        return;
+    }
     const d = data.dashboard || {};
 
     setSafeText("total-services", d.total_projects || 0);
@@ -56,6 +122,20 @@ async function loadDashboard() {
 // Load Metrics (crash-safe)
 async function loadMetrics() {
     const data = await getJSON("/api/metrics/yasinrelay");
+    if (data._offline || data._error) {
+        const cpuEl = document.getElementById("cpu");
+        if (!cpuEl || cpuEl.textContent === "0" || cpuEl.textContent === "" || cpuEl.textContent === "-" || cpuEl.textContent === "آفلاین" || cpuEl.textContent === "خطای سرور") {
+            const fallbackText = data._offline ? "آفلاین" : "خطای سرور";
+            setSafeText("cpu", fallbackText);
+            setSafeText("memory", fallbackText);
+            setSafeText("uptime", fallbackText);
+            setSafeText("fetched", fallbackText);
+            setSafeText("metrics-published", fallbackText);
+            setSafeText("metrics-failed", fallbackText);
+            setSafeText("error-rate", fallbackText);
+        }
+        return;
+    }
     const m = data.metrics || {};
 
     setSafeText("cpu", data.cpu || 0);
@@ -72,10 +152,21 @@ async function loadServices() {
     const servicesData = await getJSON("/api/services");
     const statusData = await getJSON("/api/status");
 
-    const reports = statusData.projects || [];
     const body = document.getElementById("services-body");
     if (!body) return;
 
+    if (servicesData._offline || servicesData._error || statusData._offline || statusData._error) {
+        if (!body.innerHTML || body.children.length === 0 || body.innerHTML.includes("آفلاین") || body.innerHTML.includes("خطای سرور")) {
+            if (servicesData._offline || statusData._offline) {
+                body.innerHTML = `<tr><td colspan="3" style="text-align: center; color: red; font-weight: bold;">عدم اتصال به سرور (آفلاین)</td></tr>`;
+            } else {
+                body.innerHTML = `<tr><td colspan="3" style="text-align: center; color: red; font-weight: bold;">خطا در دریافت اطلاعات سرویس‌ها (خطای سرور)</td></tr>`;
+            }
+        }
+        return;
+    }
+
+    const reports = statusData.projects || [];
     body.innerHTML = "";
 
     const services = servicesData.services || [];
@@ -141,11 +232,35 @@ async function loadServices() {
 
 // Control service start/restart/stop
 async function control(service, action) {
-    await fetch(`/api/control/${service}/${action}`, {
-        method: "POST"
-    });
-    // Immediately refresh the dashboard states
-    await refresh();
+    if (!navigator.onLine) {
+        alert("خطا: شما آفلاین هستید و امکان کنترل سرویس‌ها وجود ندارد.");
+        return;
+    }
+    try {
+        const response = await fetch(`/api/control/${service}/${action}`, {
+            method: "POST"
+        });
+        if (!response.ok) {
+            alert(`خطا: عملیات کنترل سرویس ناموفق بود (کد خطا: ${response.status})`);
+            return;
+        }
+        let data;
+        try {
+            data = await response.json();
+        } catch (jsonErr) {
+            alert("خطا: پاسخ سرور نامعتبر است (خطای JSON)");
+            return;
+        }
+        if (data && data.success === true) {
+            // Immediately refresh the dashboard states
+            await refresh();
+        } else {
+            const errMsg = (data && data.error) ? data.error : "دلیل نامشخص";
+            alert(`خطا در کنترل سرویس: ${errMsg}`);
+        }
+    } catch (err) {
+        alert("خطا: امکان برقراری ارتباط با سرور برای کنترل سرویس وجود ندارد.");
+    }
 }
 
 // Load events log list
@@ -153,6 +268,17 @@ async function loadEvents() {
     const data = await getJSON("/api/events");
     const box = document.getElementById("events");
     if (!box) return;
+
+    if (data._offline || data._error) {
+        if (!box.innerHTML || box.children.length === 0 || box.innerHTML.includes("آفلاین") || box.innerHTML.includes("خطای سرور")) {
+            if (data._offline) {
+                box.innerHTML = `<div style="padding: 20px; text-align: center; color: red; font-weight: bold;">خطا در دریافت رویدادها (آفلاین)</div>`;
+            } else {
+                box.innerHTML = `<div style="padding: 20px; text-align: center; color: red; font-weight: bold;">خطا در دریافت رویدادها (خطای سرور)</div>`;
+            }
+        }
+        return;
+    }
 
     box.innerHTML = "";
 
@@ -237,6 +363,16 @@ async function loadLogs() {
     const data = await getJSON(url);
     const logsPre = document.getElementById("logs");
     if (logsPre) {
+        if (data._offline || data._error) {
+            if (!logsPre.innerHTML || logsPre.innerHTML.includes("لاگی برای نمایش") || logsPre.innerHTML.includes("خطا در اتصال") || logsPre.innerHTML.includes("خطای سرور")) {
+                if (data._offline) {
+                    logsPre.innerHTML = '<span style="color: #f87171; font-weight: bold;">خطا در اتصال به سرور و دریافت لاگ‌ها (آفلاین)</span>';
+                } else {
+                    logsPre.innerHTML = '<span style="color: #f87171; font-weight: bold;">خطا در اتصال به سرور و دریافت لاگ‌ها (خطای سرور)</span>';
+                }
+            }
+            return;
+        }
         const lines = data.lines || [];
         if (lines.length === 0) {
             logsPre.innerHTML = '<span style="color: #888; font-style: italic;">لاگی برای نمایش وجود ندارد یا فایل لاگ خالی است.</span>';
@@ -284,6 +420,7 @@ setInterval(() => {
 // Global refresh function
 async function refresh() {
     try {
+        updateConnectionStatus();
         await loadDashboard();
         await loadServices();
         await loadMetrics();
@@ -299,3 +436,16 @@ refresh();
 
 // Set auto refresh every 15 seconds
 setInterval(refresh, 15000);
+
+// Register Service Worker
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/dashboard/sw.js", { scope: "/dashboard/" })
+            .then(reg => {
+                console.log("ServiceWorker registered successfully with scope: ", reg.scope);
+            })
+            .catch(err => {
+                console.error("ServiceWorker registration failed: ", err);
+            });
+    });
+}
