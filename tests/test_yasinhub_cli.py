@@ -109,3 +109,37 @@ def test_cli_feed_subcommands(capsys):
         captured = capsys.readouterr()
         assert "Special Article" in captured.out
         assert "Special Content" in captured.out
+
+
+def test_cli_press_subcommands(capsys):
+    """Verify that the new press subcommand executes status, health, and rewrites actions correctly."""
+    mock_service_instance = MagicMock()
+    mock_service_instance.health.return_value = {"service": "YasinPress Service", "status": "healthy"}
+    mock_service_instance.get_status.return_value = {"status": "active", "total_posts": 150}
+    mock_service_instance.get_rewrites.return_value = [
+        {"id": "1", "original_title": "Original Test", "rewritten_title": "Rewritten Test", "status": "completed"}
+    ]
+
+    with patch("yasinhub.services.press_service.PressService", return_value=mock_service_instance):
+        # 1. press status
+        exit_code = cli_main(["press", "status"])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "وضعیت سرویس پرس YasinPress" in captured.out
+        assert "وضعیت فعلی: active" in captured.out
+        assert "total_posts: 150" in captured.out
+
+        # 2. press health
+        exit_code = cli_main(["press", "health"])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "بررسی سلامت سرویس پرس YasinPress" in captured.out
+        assert "وضعیت سلامت: healthy" in captured.out
+
+        # 3. press rewrites
+        exit_code = cli_main(["press", "rewrites", "--limit", "5"])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "YasinPress-Rewrite" in captured.out
+        assert "Original Test" in captured.out
+        assert "Rewritten Test" in captured.out

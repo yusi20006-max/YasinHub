@@ -3,6 +3,7 @@ from yasinhub.services.core_service import CoreService
 from yasinhub.services.agent_service import AgentService
 from yasinhub.services.relay_service import RelayService
 from yasinhub.services.registry_service import RegistryService
+from yasinhub.services.press_service import PressService
 
 
 class EcosystemService:
@@ -13,6 +14,7 @@ class EcosystemService:
         self.agent = AgentService()
         self.relay = RelayService()
         self.registry = RegistryService()
+        self.press = PressService()
 
     def health(self):
 
@@ -21,7 +23,8 @@ class EcosystemService:
             "core": self.core.health(),
             "agent": self.agent.health("default"),
             "relay": self.relay.health(),
-            "registry": self.registry.health()
+            "registry": self.registry.health(),
+            "press": self.press.health()
         }
 
     def summary(self):
@@ -33,7 +36,8 @@ class EcosystemService:
                 "YasinCore",
                 "YasinAgent",
                 "YasinRelay",
-                "Registry"
+                "Registry",
+                "YasinPress"
             ],
             "health": self.health()
         }

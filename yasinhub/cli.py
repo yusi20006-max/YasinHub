@@ -9,6 +9,7 @@ cli.py
     python -m yasinhub.cli stop [service_name | all]
     python -m yasinhub.cli restart [service_name | all]
     python -m yasinhub.cli agent [register | status | health | start | stop | restart] [args]
+    python -m yasinhub.cli press [status | health | rewrites] [args]
 
 این ابزار به عنوان لایه کنترل مرکزی اکوسیستم Yasin عمل می‌کند.
 """
@@ -141,6 +142,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     # feed article <article_id>
     article_p = feed_subparsers.add_parser("article", help="نمایش جزئیات یک مقاله خاص")
     article_p.add_argument("article_id", help="شناسه مقاله")
+
+    # دستور مدیریت و مانیتورینگ سرویس پرس یاسین (YasinPress)
+    press_parser = subparsers.add_parser("press", help="مدیریت و مانیتورینگ سرویس پرس یاسین (YasinPress)")
+    press_subparsers = press_parser.add_subparsers(dest="action", required=True)
+
+    # press status
+    press_subparsers.add_parser("status", help="نمایش وضعیت سرویس پرس")
+
+    # press health
+    press_subparsers.add_parser("health", help="بررسی سلامت سرویس پرس")
+
+    # press rewrites [--limit LIMIT]
+    rewrites_p = press_subparsers.add_parser("rewrites", help="نمایش آخرین مقالات بازنویسی شده")
+    rewrites_p.add_argument("--limit", "-l", type=int, default=10, help="تعداد مقالات برای نمایش")
 
     # دستورات مدیریت فرآیندها
     start_parser = subparsers.add_parser("start", help="شروع اجرای یک یا همه سرویس‌ها")
@@ -420,6 +435,71 @@ def main(argv: Optional[List[str]] = None) -> int:
             ))
             return 0
 
+    elif args.command == "press":
+        from .services.press_service import PressService
+        service = PressService()
+
+        if args.action == "status":
+            status_info = service.get_status()
+            print("==================================================")
+            print("وضعیت سرویس پرس YasinPress")
+            print("==================================================")
+            if "error" in status_info and status_info["error"]:
+                print(f"خطا: {status_info['error']}")
+                return 1
+            else:
+                print(f"وضعیت فعلی: {status_info.get('status', 'unknown')}")
+                for key, val in status_info.items():
+                    if key not in ("status", "error"):
+                        print(f"{key}: {val}")
+            print("==================================================")
+            return 0
+
+        elif args.action == "health":
+            health_info = service.health()
+            print("==================================================")
+            print("بررسی سلامت سرویس پرس YasinPress")
+            print("==================================================")
+            if "error" in health_info and health_info["error"]:
+                print("وضعیت سلامت: ناسالم (Unhealthy)")
+                print(f"خطا: {health_info['error']}")
+                return 1
+            else:
+                print(f"وضعیت سلامت: {health_info.get('status', 'healthy')}")
+                for key, val in health_info.items():
+                    if key not in ("status", "error"):
+                        print(f"{key}: {val}")
+            print("==================================================")
+            return 0
+
+        elif args.action == "rewrites":
+            from rich.console import Console
+            from rich.table import Table
+
+            console = Console()
+            rewrites = service.get_rewrites(limit=args.limit)
+
+            if not rewrites:
+                console.print("[yellow]هیچ مقاله بازنویسی شده‌ای یافت نشد یا خطا در برقراری ارتباط رخ داده است.[/yellow]")
+                return 1
+
+            table = Table(title=f"لیست مقالات بازنویسی شده YasinPress-Rewrite", show_header=True, header_style="bold cyan")
+            table.add_column("شناسه (ID)", style="dim")
+            table.add_column("عنوان اصلی (Original Title)")
+            table.add_column("عنوان بازنویسی شده (Rewritten Title)")
+            table.add_column("وضعیت (Status)")
+
+            for item in rewrites:
+                table.add_row(
+                    str(item.get("id", "")),
+                    str(item.get("original_title", "")),
+                    str(item.get("rewritten_title", "")),
+                    str(item.get("status", ""))
+                )
+
+            console.print(table)
+            return 0
+
     elif args.command == "doctor":
         from .services.doctor_service import DoctorService
         from rich.console import Console
@@ -486,7 +566,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             ("core", "YasinCore (هسته مرکزی)"),
             ("agent", "YasinAgent (عامل هوشمند)"),
             ("relay", "YasinRelay (رله هوشمند)"),
-            ("registry", "Registry (ثبت پروژه‌ها)")
+            ("registry", "Registry (ثبت پروژه‌ها)"),
+            ("press", "YasinPress (سیستم پرس یاسین)")
         ]:
             srv_data = eco_info.get(srv_key, {})
             status_str, details_str = get_status_details(srv_name, srv_data)
