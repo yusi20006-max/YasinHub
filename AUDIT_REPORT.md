@@ -2,44 +2,29 @@
 
 ## Verdict
 
-**PASS (PRODUCTION READY)**
+**PASS (PRODUCTION READY) — status / lifecycle plane**
+
+## Architecture decision (FINAL-G3 / #45)
+
+YasinHub is a **status and lifecycle observer** with optional local service start/stop helpers.
+It is **not** the ecosystem control plane. Expanding it into a full control plane requires a separate product decision and a dedicated implementation Issue — not claimed here.
 
 ## Summary
 
-YasinHub is structurally sound, highly hardened, and ready for production deployment as the primary Control Plane of the Yasin ecosystem.
+YasinHub is structurally sound for its declared role: process/status observation, PID recovery, dashboard/PWA status views, and explicit adapters to Feed/Relay/Agent/Core.
 
-All 105 tests (including extensive unit and integration tests) pass with 100% success rate. The visual dashboard has been thoroughly verified, styled, and loaded with robust Persian localization and empty-state fallbacks.
+All **110** tests pass. Dashboard empty-states and Persian localization are present.
 
-## Key Completed Features & Hardening
+## Key capabilities (implemented)
 
-1. **Service Manager Hardening (`service_manager.py`)**
-   - Added validation for directory paths (`project.path`) before launching services.
-   - Handled immediate process termination or crashes by writing a failure status (`success=False`) with detailed exit/exception messages to the status store.
-   - Ensured clean background processes using `os.setsid` where available.
+1. **Service Manager** — path validation, SIGTERM→SIGKILL, status store on crash
+2. **PID & State Recovery** — stale PID cleanup, pattern-based recovery
+3. **Dashboard / PWA** — status visualization only
+4. **Feed CLI integration** — status/articles views via client adapter
+5. **Ecosystem adapters** — explicit, not opaque orchestration fabric
 
-2. **PID & State Recovery Hardening (`report.py`)**
-   - Implemented dynamic PID recovery: if a saved PID is stale or dead but the process is still running, the system automatically detects the active process via name pattern matching, restores/saves the active PID, and updates the status to `RUNNING`.
-   - Properly integrated `RUNNING`, `FAILED`, and `UNKNOWN` states.
+## Not claimed
 
-3. **Dashboard Production Hardening (`dashboard/app.js` & `dashboard/index.html`)**
-   - Handled empty states gracefully with clear placeholder messages for logs and events when no data is present.
-   - Added visual styling color-maps for `STALE` and `IDLE` statuses.
-   - Verified auto-refresh (15 seconds) and mobile responsiveness.
-   - Removed any temporary testing boxes, console logs, or mock UI blocks.
-
-4. **YasinFeed CLI & Service Integration (`cli.py`, Issue #30)**
-   - Added a first-class `feed` CLI subcommand.
-   - Implemented subactions:
-     - `feed status`: Displays health status, version, connection error details, routes, and statistics.
-     - `feed articles`: Displays the last fetched articles in a nicely formatted Rich Table.
-     - `feed article <id>`: Displays full details of a specific article within a clean Rich Panel.
-   - Handled all network/connection refusals gracefully inside the CLI to prevent stack traces.
-
-5. **Ecosystem E2E & Unit Validation**
-   - Verified that the complete cross-ecosystem flow runs smoothly.
-   - Added unit tests in `tests/test_yasinhub_cli.py` to completely cover the new `feed` CLI actions.
-   - Ran all 105 pytest cases successfully.
-
-## Conclusion
-
-The control plane is fully certified, stable, robust, and completely ready for the stable release of the Yasin ecosystem!
+- Multi-service orchestration fabric / control plane
+- Live Relay channel production activation (Hub #31)
+- Distributed control or HA

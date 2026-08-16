@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "yasin-hub"
 dynamic = ["version"]
-description = "YasinHub: control-plane / orchestration hub for the Yasin AI Ecosystem"
+description = "YasinHub: status and lifecycle observer CLI for the Yasin ecosystem (not a full control plane)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
