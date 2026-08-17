@@ -6,6 +6,7 @@ service_manager.py
 from __future__ import annotations
 
 import os
+import shlex
 import signal
 import subprocess
 import time
@@ -18,6 +19,13 @@ from .pid_store import save_pid, read_pid, remove_pid, is_pid_alive
 
 # دایرکتوری پیش‌فرض لاگ‌ها
 DEFAULT_LOGS_DIR = Path(os.environ.get("YASINHUB_LOGS_DIR", str(Path.home() / ".yasinhub" / "logs")))
+
+
+def _command_argv(command: str) -> list[str]:
+    """Parse a configured command once at the trust boundary, without shell evaluation."""
+    if not command or not command.strip():
+        raise ValueError("service command must not be empty")
+    return shlex.split(command, posix=True)
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -133,25 +141,20 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
     log_file_path = l_dir / f"{project.name}.log"
 
     try:
-        # باز کردن فایل لاگ برای نوشتن خروجی‌ها
         log_file = open(log_file_path, "a", encoding="utf-8")
     except Exception as e:
         print(f"خطا در ایجاد فایل لاگ برای {project.name}: {e}")
         return False
 
     try:
-        # آماده‌سازی متغیرهای محیطی
         env = os.environ.copy()
         if project.path:
-            env["PYTHONPATH"] = (
-                str(project.path)
-                + ":"
-                + env.get("PYTHONPATH", "")
-            )
+            env["PYTHONPATH"] = str(project.path) + ":" + env.get("PYTHONPATH", "")
 
+        command_argv = _command_argv(project.start_command)
         proc = subprocess.Popen(
-            project.start_command,
-            shell=True,
+            command_argv,
+            shell=False,
             cwd=project.path if project.path else None,
             env=env,
             stdout=log_file,
@@ -161,10 +164,8 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
 
         save_pid(project.name, proc.pid)
 
-        # زمان دادن کوتاه برای استارت اولیه پروسس و بررسی زنده بودن
         time.sleep(0.3)
         if proc.poll() is not None:
-            # پروسس بلافاصله متوقف شده است (خطا در استارت)
             print(f"خطا: سرویس {project.name} بلافاصله با کد خروج {proc.poll()} متوقف شد.")
             remove_pid(project.name)
             log_file.close()
@@ -204,20 +205,14 @@ def stop_service(project: ProjectEntry) -> bool:
             print(f"سرویس {project.name} با شناسه {saved_pid} با موفقیت متوقف شد.")
             return True
 
-    # اگر stop_command وجود داشت، آن را اجرا کنیم
     if project.stop_command:
         try:
-            subprocess.run(
-                project.stop_command,
-                shell=True,
-                timeout=10
-            )
-            # بررسی اینکه آیا با دستور متوقف شد یا خیر
+            command_argv = _command_argv(project.stop_command)
+            subprocess.run(command_argv, shell=False, timeout=10)
             stopped = True
         except Exception as e:
             print(f"خطا در اجرای دستور توقف سرویس {project.name}: {e}")
 
-    # در صورت وجود الگو، مطمئن شویم تمام پروسس‌های منطبق متوقف شده‌اند
     if project.process_pattern:
         status = check_process(project.process_pattern)
         if status.running:
@@ -238,11 +233,6 @@ def restart_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> b
     """
     print(f"در حال ری‌استارت کردن سرویس {project.name}...")
 
-    # ابتدا مطمئن شویم هرگونه پروسس فعال متوقف شده است
     stop_service(project)
-
-    # یک وقفه بسیار کوتاه برای آزاد شدن منابع
     time.sleep(0.2)
-
-    # شروع مجدد سرویس یا اجرای Job
     return start_service(project, logs_dir=logs_dir)
