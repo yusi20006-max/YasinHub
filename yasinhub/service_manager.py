@@ -39,7 +39,6 @@ def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
     """
     توقف یک پروسس به صورت امن و تضمینی. ابتدا ارسال SIGTERM و در صورت عدم توقف پس از timeout، ارسال SIGKILL.
     """
-    # در محیط‌های تست که os.kill ماک شده است، مستقیماً سیگنال را فرستاده و فرض می‌کنیم موفق بوده است
     if hasattr(os.kill, "called") or hasattr(os.kill, "assert_called"):
         try:
             os.kill(pid, signal.SIGTERM)
@@ -50,7 +49,6 @@ def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
     if not is_pid_alive(pid):
         return True
 
-    # ابتدا با SIGTERM درخواست توقف ملایم می‌کنیم
     try:
         if hasattr(os, "killpg"):
             try:
@@ -62,14 +60,12 @@ def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
     except OSError:
         pass
 
-    # انتظار برای توقف پروسس
     start_time = time.time()
     while time.time() - start_time < timeout:
         if not is_pid_alive(pid):
             return True
         time.sleep(0.1)
 
-    # اگر هنوز زنده است، با SIGKILL توقف اجباری می‌کنیم
     if is_pid_alive(pid):
         try:
             if hasattr(os, "killpg"):
@@ -82,35 +78,27 @@ def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
         except OSError:
             pass
 
-    # بررسی نهایی
     return not is_pid_alive(pid)
 
 
 def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
-    """
-    شروع اجرای یک سرویس در پس‌زمینه.
-    لاگ‌های استاندارد خروجی و خطا در فایل ~/.yasinhub/logs/<name>.log ذخیره می‌شوند.
-    """
+    """شروع اجرای یک سرویس در پس‌زمینه."""
     if not project.start_command:
         print(f"خطا: دستور شروع برای سرویس {project.name} تعریف نشده است.")
         return False
 
-    # بررسی فعال بودن پروسس از قبل با PID و الگوی پروسس
     saved_pid = read_pid(project.name)
     if saved_pid:
         if _is_pid_alive(saved_pid):
             print(f"سرویس {project.name} از قبل با شناسه {saved_pid} در حال اجراست.")
             return True
-        else:
-            # مدیریت بازیابی پس از کرش: PID قدیمی زنده نیست، پس فایل را پاک می‌کنیم
-            print(f"شناسایی کرش در سرویس {project.name}: فایل PID قدیمی {saved_pid} نامعتبر بود. پاک‌سازی انجام می‌شود.")
-            remove_pid(project.name)
+        print(f"شناسایی کرش در سرویس {project.name}: فایل PID قدیمی {saved_pid} نامعتبر بود. پاک‌سازی انجام می‌شود.")
+        remove_pid(project.name)
 
     if project.process_pattern:
         status = check_process(project.process_pattern)
         if status.running:
             print(f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}).")
-            # اگر فایل PID نداشت ولی پروسس در حال اجرا بود، PID اول را ذخیره کنیم
             if status.pids:
                 try:
                     save_pid(project.name, int(status.pids[0]))
@@ -118,7 +106,6 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
                     pass
             return True
 
-    # بررسی صحت وجود دایرکتوری در صورت تعریف شدن
     if project.path:
         p_path = Path(project.path)
         if not p_path.exists():
@@ -130,7 +117,6 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
                 pass
             return False
 
-    # آماده‌سازی مسیر لاگ از لایه پیکربندی
     if logs_dir is None:
         from .config_manager import get_logs_dir
         l_dir = get_logs_dir()
@@ -151,9 +137,8 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
         if project.path:
             env["PYTHONPATH"] = str(project.path) + ":" + env.get("PYTHONPATH", "")
 
-        command_argv = _command_argv(project.start_command)
         proc = subprocess.Popen(
-            command_argv,
+            _command_argv(project.start_command),
             shell=False,
             cwd=project.path if project.path else None,
             env=env,
@@ -163,7 +148,6 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
         )
 
         save_pid(project.name, proc.pid)
-
         time.sleep(0.3)
         if proc.poll() is not None:
             print(f"خطا: سرویس {project.name} بلافاصله با کد خروج {proc.poll()} متوقف شد.")
@@ -192,9 +176,7 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
 
 
 def stop_service(project: ProjectEntry) -> bool:
-    """
-    توقف سرویس با PID ذخیره شده یا process pattern
-    """
+    """توقف سرویس با PID ذخیره شده یا process pattern."""
     stopped = False
     saved_pid = read_pid(project.name)
 
@@ -207,8 +189,7 @@ def stop_service(project: ProjectEntry) -> bool:
 
     if project.stop_command:
         try:
-            command_argv = _command_argv(project.stop_command)
-            subprocess.run(command_argv, shell=False, timeout=10)
+            subprocess.run(_command_argv(project.stop_command), shell=False, timeout=10)
             stopped = True
         except Exception as e:
             print(f"خطا در اجرای دستور توقف سرویس {project.name}: {e}")
@@ -218,8 +199,7 @@ def stop_service(project: ProjectEntry) -> bool:
         if status.running:
             for pid_str in status.pids:
                 try:
-                    pid = int(pid_str)
-                    if stop_pid_safely(pid):
+                    if stop_pid_safely(int(pid_str)):
                         stopped = True
                 except Exception:
                     pass
@@ -228,11 +208,8 @@ def stop_service(project: ProjectEntry) -> bool:
 
 
 def restart_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
-    """
-    راه‌اندازی مجدد یک سرویس با ترکیب متوقف کردن و شروع مجدد آن.
-    """
+    """راه‌اندازی مجدد یک سرویس با ترکیب متوقف کردن و شروع مجدد آن."""
     print(f"در حال ری‌استارت کردن سرویس {project.name}...")
-
     stop_service(project)
     time.sleep(0.2)
     return start_service(project, logs_dir=logs_dir)
