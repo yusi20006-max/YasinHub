@@ -60,5 +60,5 @@ def test_shell_metacharacters_are_not_interpreted():
         assert stop_service(project) is True
 
         argv = run.call_args.args[0]
-        assert ";" in argv
+        assert any(";" in arg for arg in argv)
         assert run.call_args.kwargs["shell"] is False
