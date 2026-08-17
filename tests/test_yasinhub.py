@@ -188,7 +188,7 @@ def test_stop_service_custom_command(mock_run):
     project = ProjectEntry(name="test_srv", stop_command="python3 stop.py")
     success = stop_service(project)
     assert success is True
-    mock_run.assert_called_once_with("python3 stop.py", shell=True, timeout=10)
+    mock_run.assert_called_once_with(["python3", "stop.py"], shell=False, timeout=10)
 
 
 @patch("yasinhub.service_manager.os.kill")
