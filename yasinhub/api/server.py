@@ -17,14 +17,16 @@ from ..pid_store import read_pid, is_pid_alive
 
 class YasinHubHandler(BaseHTTPRequestHandler):
 
-    def send_json(self, data):
+    def send_json(self, data, status: int = 200):
         payload = json.dumps(
             data,
             ensure_ascii=False,
-            indent=2
+            indent=2,
+            sort_keys=True,
+            default=str,
         ).encode("utf-8")
 
-        self.send_response(200)
+        self.send_response(status)
         self.send_header(
             "Content-Type",
             "application/json; charset=utf-8"
@@ -96,6 +98,17 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         if self.handle_control(clean_path):
             return
 
+        from .observer_routes import handle_execution_observer
+        if handle_execution_observer(
+            clean_path,
+            "POST",
+            self.path,
+            getattr(self, "headers", {}),
+            getattr(self, "rfile", None),
+            self.send_json,
+        ):
+            return
+
         if clean_path in ("/api/events/cleanup", "/api/events/clear"):
             from ..events_engine import cleanup_events
             success = cleanup_events()
@@ -114,6 +127,17 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
         # ابتدا بررسی دستورات کنترلی (با توجه به امکان اجرای curl به عنوان GET)
         if self.handle_control(clean_path):
+            return
+
+        from .observer_routes import handle_execution_observer
+        if handle_execution_observer(
+            clean_path,
+            "GET",
+            self.path,
+            getattr(self, "headers", {}),
+            getattr(self, "rfile", None),
+            self.send_json,
+        ):
             return
 
         if clean_path == "/api/health":
