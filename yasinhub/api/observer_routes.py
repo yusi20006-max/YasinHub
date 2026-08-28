@@ -1,10 +1,11 @@
-"""HTTP route handlers for Execution Observer / Fleet / Control (#50 #51 #52)."""
+"""HTTP route handlers for Execution Observer / Fleet / Control (#50 #51 #52 #54)."""
 from __future__ import annotations
 
 import json
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
+from ..adapters.agent_runtime import get_runtime_adapter, resolve_integration_context
 from ..observer import get_default_store
 from ..observer.execution_store import InvalidTransitionError
 
@@ -38,6 +39,7 @@ def handle_execution_observer(
 ) -> bool:
     """Return True if request was handled."""
     store = get_default_store()
+    adapter = get_runtime_adapter()
 
     if method == "GET" and clean_path == "/api/executions":
         qs = parse_qs(urlparse(path).query)
@@ -53,14 +55,22 @@ def handle_execution_observer(
         parts = [p for p in clean_path.split("/") if p]
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "executions":
             eid = parts[2]
-            rec = store.get_execution(eid)
-            if rec is None:
-                send_json(
-                    {"success": False, "error": "unknown execution", "execution_id": eid},
-                    status=404,
-                )
+            # Prefer adapter projection (may sync from Agent)
+            try:
+                data = adapter.get_execution(eid)
+            except Exception:
+                data = None
+            if data is None:
+                rec = store.get_execution(eid)
+                if rec is None:
+                    send_json(
+                        {"success": False, "error": "unknown execution", "execution_id": eid},
+                        status=404,
+                    )
+                    return True
+                send_json({"execution": rec.as_dict()})
                 return True
-            send_json({"execution": rec.as_dict()})
+            send_json({"execution": data if isinstance(data, dict) else data})
             return True
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "executions" and parts[3] == "events":
             eid = parts[2]
@@ -119,20 +129,19 @@ def handle_execution_observer(
             if body.get("__malformed__"):
                 send_json({"success": False, "error": "malformed request body"}, status=400)
                 return True
-            actor = body.get("actor")
-            request_id = body.get("request_id") or f"req-{eid[:12]}"
+            ctx = resolve_integration_context(body, headers=headers)
             try:
                 if action == "pause":
-                    rec = store.pause(eid, actor=actor, request_id=request_id)
+                    rec = adapter.pause(eid, context=ctx)
                 elif action == "resume":
-                    rec = store.resume(eid, actor=actor, request_id=request_id)
+                    rec = adapter.resume(eid, context=ctx)
                 else:
-                    rec = store.cancel(eid, actor=actor, request_id=request_id)
+                    rec = adapter.cancel(eid, context=ctx)
                 send_json({
                     "success": True,
                     "action": action,
-                    "execution": rec.as_dict(),
-                    "request_id": request_id,
+                    "execution": rec if isinstance(rec, dict) else rec,
+                    "request_id": ctx.request_id,
                 })
             except KeyError:
                 send_json(
@@ -168,15 +177,14 @@ def handle_execution_observer(
         if body.get("__malformed__"):
             send_json({"success": False, "error": "malformed request body"}, status=400)
             return True
+        ctx = resolve_integration_context(body, headers=headers)
         try:
-            fleet = store.cancel_fleet(
-                task_id, actor=body.get("actor"), request_id=body.get("request_id")
-            )
+            fleet = adapter.cancel_fleet(task_id, context=ctx)
             send_json({
                 "success": True,
                 "action": "cancel",
-                "fleet": fleet.as_dict(),
-                "request_id": body.get("request_id"),
+                "fleet": fleet if isinstance(fleet, dict) else fleet,
+                "request_id": ctx.request_id,
             })
         except KeyError:
             send_json(
