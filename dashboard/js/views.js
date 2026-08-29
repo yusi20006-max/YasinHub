@@ -1,17 +1,23 @@
 /**
- * View renderers: loading, empty, error, content.
- * Observability-focused projections (#57). No lifecycle authority.
+ * View renderers: loading, empty, error, content, controls.
+ * Observability + safe controls (#57/#58). No lifecycle authority.
  * @module views
  */
-import { statusClass } from "./models.js";
+import {
+  statusClass,
+  canPause,
+  canResume,
+  canCancel,
+  canCancelFleet,
+} from "./models.js";
 import { navigate } from "./router.js";
 
 export function escapeHtml(s) {
   return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/&/g, "&")
+    .replace(/</g, "<")
+    .replace(/>/g, ">")
+    .replace(/"/g, """)
     .replace(/'/g, "&#039;");
 }
 
@@ -22,6 +28,41 @@ export function formatTs(ts) {
   } catch (_) {
     return String(ts);
   }
+}
+
+export function formatControlError(result) {
+  if (!result) return "Control failed.";
+  if (result.offline) return "Offline — cannot send control request.";
+  if (result.status === 404) {
+    return result.message || "Resource not found (404).";
+  }
+  if (result.status === 409) {
+    const d = result.data || {};
+    const detail = d.detail || result.message || "invalid transition";
+    const cur = d.current ? ` current=${d.current}` : "";
+    const tgt = d.target ? ` target=${d.target}` : "";
+    return `Invalid transition (409): ${detail}${cur}${tgt}`;
+  }
+  return result.message || "Control request failed.";
+}
+
+function controlBarHtml(kind, id, status) {
+  const buttons = [];
+  if (kind === "execution") {
+    buttons.push(
+      `<button type="button" class="btn-secondary ctrl-btn" data-ctrl="pause" data-id="${escapeHtml(id)}" ${canPause(status) ? "" : "disabled"}>Pause</button>`,
+      `<button type="button" class="btn-secondary ctrl-btn" data-ctrl="resume" data-id="${escapeHtml(id)}" ${canResume(status) ? "" : "disabled"}>Resume</button>`,
+      `<button type="button" class="btn-danger ctrl-btn" data-ctrl="cancel" data-id="${escapeHtml(id)}" data-confirm="Cancel this execution? This cannot be undone." ${canCancel(status) ? "" : "disabled"}>Cancel</button>`
+    );
+  } else if (kind === "fleet") {
+    buttons.push(
+      `<button type="button" class="btn-danger ctrl-btn" data-ctrl="fleet-cancel" data-id="${escapeHtml(id)}" data-confirm="Cancel this fleet and all workers? This cannot be undone." ${canCancelFleet(status) ? "" : "disabled"}>Cancel fleet</button>`
+    );
+  }
+  return `<div class="control-bar" role="group" aria-label="Controls">
+    ${buttons.join("\n    ")}
+    <span class="control-feedback" id="control-feedback" role="status" aria-live="polite"></span>
+  </div>`;
 }
 
 export function renderLoading(el, message) {
@@ -125,6 +166,7 @@ export function renderExecutionDetail(el, exec, events) {
       <span class="badge ${statusClass(exec.status)}">${escapeHtml(exec.status)}</span>
       ${exec.cancel_requested ? '<span class="badge status-cancelling">cancel requested</span>' : ""}
     </div>
+    ${controlBarHtml("execution", exec.execution_id, exec.status)}
     <div class="detail-grid">
       <div class="detail-item"><span class="label">Task</span><code>${escapeHtml(exec.task_id || "—")}</code></div>
       <div class="detail-item"><span class="label">Session</span><code>${escapeHtml(exec.session_id || "—")}</code></div>
@@ -220,6 +262,7 @@ export function renderFleetDetail(el, fleet) {
       <h2><code>${escapeHtml(fleet.task_id)}</code></h2>
       <span class="badge ${statusClass(fleet.status)}">${escapeHtml(fleet.status)}</span>
     </div>
+    ${controlBarHtml("fleet", fleet.task_id, fleet.status)}
     <div class="fleet-summary">${stats || '<span class="hint">No workers</span>'}</div>
     <div class="table-wrap"><table class="data-table" aria-label="Workers">
       <thead><tr>

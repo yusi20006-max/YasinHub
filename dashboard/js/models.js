@@ -128,3 +128,25 @@ export function statusClass(status) {
   }
   return "status-unknown";
 }
+
+/** Statuses that accept pause. */
+export function canPause(status) {
+  return String(status || "").toLowerCase() === "running";
+}
+
+/** Statuses that accept resume. */
+export function canResume(status) {
+  return String(status || "").toLowerCase() === "paused";
+}
+
+/** Statuses that accept cancel (non-terminal). */
+export function canCancel(status) {
+  const s = String(status || "").toLowerCase();
+  return ["queued", "running", "paused"].includes(s);
+}
+
+/** Fleet-level cancel when not already fully terminal. */
+export function canCancelFleet(status) {
+  const s = String(status || "").toLowerCase();
+  return !["succeeded", "failed", "cancelled"].includes(s);
+}

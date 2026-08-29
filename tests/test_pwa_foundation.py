@@ -169,7 +169,7 @@ def test_app_js_boot_and_route_render():
 
 
 def test_no_scope_leakage_in_foundation():
-    """#56 must not include #57/#58/#59 features."""
+    """Foundation forbids WebSocket/auth secrets; controls may exist after #58."""
     for path in (
         DASHBOARD / "app.js",
         JS / "api.js",
@@ -180,11 +180,9 @@ def test_no_scope_leakage_in_foundation():
         content = _read(path)
         assert "WebSocket" not in content
         assert "new WebSocket" not in content
-        # No control POST helpers in foundation (pause/resume/cancel come in #58)
-        assert "pauseExecution" not in content
-        assert "resumeExecution" not in content
-        assert "cancelExecution" not in content
-        assert "cancelFleet" not in content
+        # Control helpers may exist after #58; foundation still forbids secrets/shell
+        assert "localStorage" not in content
+        assert "sessionStorage" not in content
 
 
 def test_style_responsive_foundation():

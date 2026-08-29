@@ -1,4 +1,4 @@
-/* YasinHub PWA — responsive shell + observability (#56/#57) */
+/* YasinHub PWA — responsive shell + observability + controls (#56/#57/#58) */
 
 :root {
   --bg: #f1f5f9;
@@ -428,6 +428,35 @@ code {
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow: var(--shadow);
+}
+
+/* Control plane UI (#58) */
+.control-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.control-bar .ctrl-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.control-feedback {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-left: auto;
+}
+.control-feedback.control-ok {
+  color: var(--success);
+}
+.control-feedback.control-error {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 @media (max-width: 800px) {

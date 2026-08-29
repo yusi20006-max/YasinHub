@@ -1,6 +1,6 @@
 /**
- * YasinHub PWA application entry — live observability (#57).
- * Polling/revalidation over existing Observer APIs. No lifecycle authority.
+ * YasinHub PWA application entry — observability + safe controls (#57/#58).
+ * Polling/revalidation + control plane. No lifecycle authority in the UI.
  */
 import { parseRoute, onRouteChange, navKey } from "./js/router.js";
 import * as api from "./js/api.js";
@@ -13,6 +13,7 @@ import {
   renderFleetsList,
   renderFleetDetail,
   renderEventsTimeline,
+  formatControlError,
 } from "./js/views.js";
 
 const TITLES = {
@@ -24,7 +25,6 @@ const TITLES = {
   events: "Events",
 };
 
-/** Poll interval ms — detail views refresh faster. */
 const POLL_LIST_MS = 5000;
 const POLL_DETAIL_MS = 3000;
 
@@ -118,10 +118,6 @@ function startPolling(route) {
   updateMetaRow();
 }
 
-/**
- * @param {import('./js/router.js').Route} route
- * @param {{soft?: boolean}} [opts]
- */
 async function renderRoute(route, opts) {
   const soft = Boolean(opts && opts.soft);
   const content = $("content");
@@ -221,6 +217,7 @@ async function renderRoute(route, opts) {
       appState.hasContent = true;
       setStale(!eventsRes.ok);
       updateMetaRow();
+      wireControls(content);
       return;
     }
 
@@ -271,6 +268,7 @@ async function renderRoute(route, opts) {
       appState.hasContent = true;
       setStale(false);
       updateMetaRow();
+      wireControls(content);
       return;
     }
 
@@ -302,6 +300,82 @@ async function renderRoute(route, opts) {
     setStale(true);
     appState.hasContent = false;
   }
+}
+
+function setControlFeedback(message, isError) {
+  const el = $("control-feedback");
+  if (!el) return;
+  el.textContent = message || "";
+  el.className = "control-feedback" + (isError ? " control-error" : " control-ok");
+}
+
+function setControlsBusy(busy) {
+  document.querySelectorAll(".ctrl-btn").forEach((btn) => {
+    if (busy) {
+      btn.dataset.prevDisabled = btn.disabled ? "1" : "0";
+      btn.disabled = true;
+    } else if (btn.dataset.prevDisabled === "0") {
+      btn.disabled = false;
+    }
+  });
+}
+
+async function handleControlClick(btn) {
+  const action = btn.getAttribute("data-ctrl");
+  const id = btn.getAttribute("data-id");
+  if (!action || !id) return;
+
+  const confirmMsg = btn.getAttribute("data-confirm");
+  if (confirmMsg && !window.confirm(confirmMsg)) {
+    return;
+  }
+
+  setControlsBusy(true);
+  setControlFeedback("Sending " + action + "…", false);
+
+  let result;
+  try {
+    if (action === "pause") {
+      result = await api.pauseExecution(id);
+    } else if (action === "resume") {
+      result = await api.resumeExecution(id);
+    } else if (action === "cancel") {
+      result = await api.cancelExecution(id);
+    } else if (action === "fleet-cancel") {
+      result = await api.cancelFleet(id);
+    } else {
+      setControlFeedback("Unknown action.", true);
+      setControlsBusy(false);
+      return;
+    }
+  } catch (e) {
+    setControlFeedback(e && e.message ? String(e.message) : "Control failed", true);
+    setControlsBusy(false);
+    return;
+  }
+
+  if (!result.ok) {
+    setControlFeedback(formatControlError(result), true);
+    setControlsBusy(false);
+    await renderRoute(parseRoute(), { soft: true });
+    return;
+  }
+
+  const rid = result.requestId ? " req=" + result.requestId : "";
+  setControlFeedback("OK: " + (result.action || action) + rid, false);
+  await renderRoute(parseRoute(), { soft: true });
+}
+
+function wireControls(root) {
+  const scope = root || document;
+  scope.querySelectorAll(".ctrl-btn").forEach((btn) => {
+    if (btn.dataset.wired === "1") return;
+    btn.dataset.wired = "1";
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      handleControlClick(btn);
+    });
+  });
 }
 
 function wireChrome() {

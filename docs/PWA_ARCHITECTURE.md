@@ -1,12 +1,12 @@
 # YasinHub PWA Architecture
 
-Issues **#56** (foundation) and **#57** (live observability).
+Issues **#56** (foundation), **#57** (live observability), **#58** (safe controls).
 
 ## Architecture
 
 ```text
 YasinHub PWA (dashboard/)
-    ↓ existing HTTP API contracts (polling)
+    ↓ existing HTTP API contracts (polling + control POST)
 YasinHub Observer + Control
     ↓ integration adapter
 Yasin-Agent runtime
@@ -24,11 +24,11 @@ authorization, or tool governance.
 |------|------|
 | `dashboard/index.html` | App shell, navigation landmarks |
 | `dashboard/style.css` | Responsive layout (mobile + desktop) |
-| `dashboard/app.js` | Entry: route wiring, fetch orchestration, polling |
+| `dashboard/app.js` | Entry: route wiring, fetch, polling, controls |
 | `dashboard/js/router.js` | Hash router (`#/…`) |
-| `dashboard/js/api.js` | HTTP client for Observer endpoints |
-| `dashboard/js/models.js` | Typed normalize helpers (execution/fleet/event) |
-| `dashboard/js/views.js` | Loading / empty / error / content renderers |
+| `dashboard/js/api.js` | HTTP client for Observer + Control endpoints |
+| `dashboard/js/models.js` | Typed normalize helpers + control availability |
+| `dashboard/js/views.js` | Loading / empty / error / content / control bars |
 | `dashboard/sw.js` | Service worker (app-shell cache) |
 | `dashboard/manifest.json` | Installable PWA manifest |
 
@@ -38,9 +38,9 @@ authorization, or tool governance.
 |------------|------|
 | `#/` | Overview / system status (`GET /api/dashboard`) |
 | `#/executions` | Execution list (`GET /api/executions`) |
-| `#/executions/:id` | Execution detail + events |
+| `#/executions/:id` | Execution detail + events + controls |
 | `#/fleets` | Fleet list (`GET /api/fleets`) |
-| `#/fleets/:id` | Fleet detail (workers, progress, partial failures) |
+| `#/fleets/:id` | Fleet detail + cancel |
 | `#/events` | Event timeline (`GET /api/execution-events`) |
 
 Navigation is client-side (hash change). No full page reload for in-app routes.
@@ -56,6 +56,27 @@ Navigation is client-side (hash change). No full page reload for in-app routes.
 - Event lists are sorted by `(sequence, timestamp)` in the API client.
 - Fleet views show per-status worker breakdown and progress/error columns.
 
+## Safe controls (#58)
+
+Control plane is exposed through the existing Hub POST endpoints:
+
+- `POST /api/executions/{id}/pause`
+- `POST /api/executions/{id}/resume`
+- `POST /api/executions/{id}/cancel`
+- `POST /api/fleets/{task_id}/cancel`
+
+Behaviour:
+
+- Buttons are enabled only when the current status can accept the action
+  (`running`→pause, `paused`→resume, non-terminal→cancel).
+- Cancel (execution and fleet) requires an explicit browser confirm.
+- Request body carries a generated `request_id` for correlation only;
+  the frontend never supplies authenticated actor identity as authority.
+- After every control response (success or 404/409), the UI re-fetches
+  server state — no permanent optimistic mutation.
+- 404 (unknown resource) and 409 (invalid transition) are rendered clearly
+  in the control feedback region.
+
 ## API boundary
 
 Consumed (unchanged contracts):
@@ -68,6 +89,8 @@ Consumed (unchanged contracts):
 - `GET /api/fleets/{task_id}`
 - `GET /api/dashboard` (overview)
 - `GET /api/health`
+- `POST /api/executions/{id}/{pause|resume|cancel}`
+- `POST /api/fleets/{task_id}/cancel`
 
 UI states: **loading**, **empty**, **error**, **offline**, plus a **stale** indicator.
 
@@ -80,7 +103,7 @@ UI states: **loading**, **empty**, **error**, **offline**, plus a **stale** indi
 
 ## Out of scope
 
-- **#56/#57**: control buttons (pause/resume/cancel) → **#58**
 - Authentication / real Agent transport → **#59**
 - WebSocket streaming (polling is the initial transport)
 - Telegram/Discord
+- New authorization or Agent lifecycle logic in the frontend
