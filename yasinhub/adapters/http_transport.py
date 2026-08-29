@@ -25,10 +25,18 @@ logger = logging.getLogger(__name__)
 class TransportError(Exception):
     """Base transport failure."""
 
-    def __init__(self, message: str, *, status: Optional[int] = None, retryable: bool = False):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: Optional[int] = None,
+        retryable: bool = False,
+        body: Any = None,
+    ):
         super().__init__(message)
         self.status = status
         self.retryable = retryable
+        self.body = body
 
 
 class AuthenticationError(TransportError):
@@ -214,19 +222,23 @@ class HttpTransportClient:
                     err_json = json.loads(err_body) if err_body else {}
                 except Exception:
                     err_json = {}
-                msg = (err_json.get("error") if isinstance(err_json, dict) else None) or str(e)
+                msg = (
+                    (err_json.get("detail") or err_json.get("error") or err_json.get("message"))
+                    if isinstance(err_json, dict)
+                    else None
+                ) or str(e)
                 if status in (401, 403):
                     self._record_failure(str(msg), status)
                     raise AuthenticationError(str(msg), status=status) from e
                 if status >= 500:
-                    last_err = TransportError(str(msg), status=status, retryable=True)
+                    last_err = TransportError(str(msg), status=status, retryable=True, body=err_json)
                     self._record_failure(str(msg), status)
                     if attempt + 1 < attempts:
                         time.sleep(self.config.retry_backoff_seconds * (attempt + 1))
                         continue
                     raise last_err from e
                 self._record_failure(str(msg), status)
-                raise TransportError(str(msg), status=status, retryable=False) from e
+                raise TransportError(str(msg), status=status, retryable=False, body=err_json) from e
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 last_err = TransportUnavailable(str(e.reason if hasattr(e, "reason") else e))
                 self._record_failure(str(last_err))
