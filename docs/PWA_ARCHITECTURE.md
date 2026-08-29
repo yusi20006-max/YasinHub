@@ -1,12 +1,12 @@
 # YasinHub PWA Architecture
 
-Issue **#56** — PWA foundation and execution control dashboard shell.
+Issues **#56** (foundation) and **#57** (live observability).
 
 ## Architecture
 
 ```text
 YasinHub PWA (dashboard/)
-    ↓ existing HTTP API contracts
+    ↓ existing HTTP API contracts (polling)
 YasinHub Observer + Control
     ↓ integration adapter
 Yasin-Agent runtime
@@ -24,7 +24,7 @@ authorization, or tool governance.
 |------|------|
 | `dashboard/index.html` | App shell, navigation landmarks |
 | `dashboard/style.css` | Responsive layout (mobile + desktop) |
-| `dashboard/app.js` | Entry: route wiring, fetch orchestration |
+| `dashboard/app.js` | Entry: route wiring, fetch orchestration, polling |
 | `dashboard/js/router.js` | Hash router (`#/…`) |
 | `dashboard/js/api.js` | HTTP client for Observer endpoints |
 | `dashboard/js/models.js` | Typed normalize helpers (execution/fleet/event) |
@@ -40,10 +40,21 @@ authorization, or tool governance.
 | `#/executions` | Execution list (`GET /api/executions`) |
 | `#/executions/:id` | Execution detail + events |
 | `#/fleets` | Fleet list (`GET /api/fleets`) |
-| `#/fleets/:id` | Fleet detail |
+| `#/fleets/:id` | Fleet detail (workers, progress, partial failures) |
 | `#/events` | Event timeline (`GET /api/execution-events`) |
 
 Navigation is client-side (hash change). No full page reload for in-app routes.
+
+## Live observability (#57)
+
+- **Polling / revalidation**: list routes every 5s; detail routes every 3s.
+- Polling pauses when the document is hidden or the browser is offline.
+- Soft refresh avoids a full loading flash when content is already rendered.
+- Generation counter drops stale responses after route changes.
+- Live indicator + last-updated timestamp in the page meta row.
+- Stale indicator when a partial fetch fails.
+- Event lists are sorted by `(sequence, timestamp)` in the API client.
+- Fleet views show per-status worker breakdown and progress/error columns.
 
 ## API boundary
 
@@ -58,7 +69,7 @@ Consumed (unchanged contracts):
 - `GET /api/dashboard` (overview)
 - `GET /api/health`
 
-UI states: **loading**, **empty**, **error**, **offline**, plus a **stale** indicator when partial fetch fails.
+UI states: **loading**, **empty**, **error**, **offline**, plus a **stale** indicator.
 
 ## Safety
 
@@ -67,13 +78,9 @@ UI states: **loading**, **empty**, **error**, **offline**, plus a **stale** indi
 - No second execution state machine in the frontend.
 - Backend remains authoritative for lifecycle and 404/409 semantics.
 
-## Out of scope for #56
+## Out of scope
 
-WebSocket/realtime streaming, authentication, control buttons (pause/resume/cancel),
-Telegram/Discord, new backend execution logic.
-
-Later issues build on this foundation:
-
-- **#57** — live observability / polling
-- **#58** — safe controls
-- **#59** — authenticated Agent transport
+- **#56/#57**: control buttons (pause/resume/cancel) → **#58**
+- Authentication / real Agent transport → **#59**
+- WebSocket streaming (polling is the initial transport)
+- Telegram/Discord
