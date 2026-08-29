@@ -554,10 +554,27 @@ _adapter_lock = threading.Lock()
 
 
 def get_runtime_adapter() -> AgentRuntimeAdapter:
+    """Return the process-wide adapter.
+
+    Selection order when unset:
+    1. Explicit set_runtime_adapter(...)
+    2. HTTP transport if YASINHUB_AGENT_BASE_URL + YASINHUB_AGENT_SERVICE_TOKEN are set
+    3. In-process adapter (default / tests)
+    """
     global _adapter
     with _adapter_lock:
         if _adapter is None:
-            _adapter = InProcessAgentRuntimeAdapter()
+            try:
+                from .http_adapter import build_adapter_from_env
+
+                http_adapter = build_adapter_from_env()
+                if http_adapter is not None:
+                    _adapter = http_adapter
+                else:
+                    _adapter = InProcessAgentRuntimeAdapter()
+            except Exception:
+                logger.exception("HTTP adapter init failed; falling back to in-process")
+                _adapter = InProcessAgentRuntimeAdapter()
         return _adapter
 
 
