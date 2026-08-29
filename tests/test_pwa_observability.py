@@ -101,17 +101,11 @@ def test_docs_describe_polling_and_scope():
     assert "#58" in content
 
 
-def test_no_control_buttons_in_views_yet():
-    """#58 owns controls; #57 must not expose pause/resume/cancel UI."""
+def test_observability_does_not_embed_control_paths_in_views():
+    """Views may render control buttons (#58) but must not hardcode API paths."""
     content = _read(JS / "views.js")
-    lower = content.lower()
-    assert "pause" not in lower or "cancel_requested" in content
-    assert 'data-action="pause"' not in content
-    assert 'data-action="resume"' not in content
-    assert 'data-action="cancel"' not in content
-    assert "/pause" not in content
-    assert "/resume" not in content
-    assert "/cancel" not in content
+    assert "/api/executions/" not in content
+    assert "/api/fleets/" not in content
 
 
 def test_models_normalize_preserves_ordering_fields():
