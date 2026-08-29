@@ -168,3 +168,127 @@ export async function getSystemDashboard() {
 export async function getHealth() {
   return getJSON("/api/health");
 }
+
+/**
+ * Low-level JSON POST for control plane.
+ * @param {string} path
+ * @param {Object} [body]
+ * @returns {Promise<ApiResult>}
+ */
+export async function postJSON(path, body) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return { ok: false, offline: true, error: false, status: null, data: null, message: "offline" };
+  }
+  try {
+    const res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      credentials: "same-origin",
+      body: JSON.stringify(body || {}),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok) {
+      return {
+        ok: false,
+        offline: false,
+        error: true,
+        status: res.status,
+        data,
+        message:
+          (data && (data.detail || data.error)) ||
+          res.statusText ||
+          "request failed",
+      };
+    }
+    return { ok: true, offline: false, error: false, status: res.status, data, message: null };
+  } catch (e) {
+    return {
+      ok: false,
+      offline: false,
+      error: true,
+      status: null,
+      data: null,
+      message: e && e.message ? String(e.message) : "network error",
+    };
+  }
+}
+
+/**
+ * Generate a correlation id for control requests (not an auth identity).
+ */
+export function newRequestId() {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch (_) {}
+  return "req-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+}
+
+/**
+ * @param {string} executionId
+ * @param {"pause"|"resume"|"cancel"} action
+ * @param {Object} [opts]
+ */
+export async function controlExecution(executionId, action, opts) {
+  const requestId = (opts && opts.requestId) || newRequestId();
+  const path =
+    "/api/executions/" +
+    encodeURIComponent(executionId) +
+    "/" +
+    encodeURIComponent(action);
+  // Actor is optional display hint only; backend resolves authenticated identity.
+  const body = { request_id: requestId };
+  if (opts && opts.actor) body.actor = String(opts.actor);
+  const result = await postJSON(path, body);
+  if (!result.ok || !result.data) return { ...result, requestId };
+  const exec = result.data.execution
+    ? normalizeExecution(result.data.execution)
+    : null;
+  return {
+    ...result,
+    action: result.data.action || action,
+    execution: exec,
+    requestId: result.data.request_id || requestId,
+  };
+}
+
+export async function pauseExecution(executionId, opts) {
+  return controlExecution(executionId, "pause", opts);
+}
+
+export async function resumeExecution(executionId, opts) {
+  return controlExecution(executionId, "resume", opts);
+}
+
+export async function cancelExecution(executionId, opts) {
+  return controlExecution(executionId, "cancel", opts);
+}
+
+/**
+ * @param {string} taskId
+ * @param {Object} [opts]
+ */
+export async function cancelFleet(taskId, opts) {
+  const requestId = (opts && opts.requestId) || newRequestId();
+  const path = "/api/fleets/" + encodeURIComponent(taskId) + "/cancel";
+  const body = { request_id: requestId };
+  if (opts && opts.actor) body.actor = String(opts.actor);
+  const result = await postJSON(path, body);
+  if (!result.ok || !result.data) return { ...result, requestId };
+  const fleet = result.data.fleet ? normalizeFleet(result.data.fleet) : null;
+  return {
+    ...result,
+    action: result.data.action || "cancel",
+    fleet,
+    requestId: result.data.request_id || requestId,
+  };
+}
