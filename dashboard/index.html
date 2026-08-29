@@ -1,164 +1,51 @@
 <!DOCTYPE html>
-<html lang="fa" dir="rtl">
-
+<html lang="en" dir="ltr">
 <head>
-
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-
-<title>YasinHub Dashboard</title>
-
-<link rel="stylesheet" href="style.css">
-
-<link rel="manifest" href="manifest.json">
-
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <title>YasinHub Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png" type="image/png">
 </head>
-
-
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
 
-
-<header>
-
-<h1>🟢 YasinHub Dashboard</h1>
-
-<p>مدیریت اکوسیستم یاسین</p>
-
-<div id="connection-status" role="status" aria-live="polite" aria-atomic="true"></div>
-
-<button id="theme-toggle">
-🌙 تغییر تم
-</button>
-
-</header>
-
-
-
-<section id="summary">
-
-<div>
-<h3>کل پروژه‌ها</h3>
-<span id="total-services">0</span>
-</div>
-
-
-<div>
-<h3>موفق</h3>
-<span id="success">0</span>
-</div>
-
-
-<div>
-<h3>در حال اجرا</h3>
-<span id="running">0</span>
-</div>
-
-
-<div>
-<h3>خطا</h3>
-<span id="failed">0</span>
-</div>
-
-
-<div>
-<h3>نامشخص</h3>
-<span id="unknown">0</span>
-</div>
-
-
-<div>
-<h3>کل پست‌ها</h3>
-<span id="total-posts">0</span>
-</div>
-
-
-<div>
-<h3>منتشر شده</h3>
-<span id="published">0</span>
-</div>
-
-
-<div>
-<h3>در انتظار</h3>
-<span id="pending">0</span>
-</div>
-
-
-</section>
-
-
-
-
-<h2>Services</h2>
-
-<table>
-
-<thead>
-
-<tr>
-
-<th>نام</th>
-
-<th>وضعیت</th>
-
-<th>کنترل</th>
-
-</tr>
-
-</thead>
-
-
-<tbody id="services-body">
-
-</tbody>
-
-
-</table>
-
-
-
-
-
-<h2>Events</h2>
-
-<div id="events">
-
-</div>
-
-
-
-
-
-<h2>Logs</h2>
-
-<div style="display: flex; gap: 15px; align-items: center; margin-bottom: 15px; flex-wrap: wrap;">
-    <div>
-        <label for="log-service">سرویس:</label>
-        <select id="log-service" style="padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-family: inherit;">
-            <option value="yasinrelay">yasinrelay</option>
-        </select>
+  <header class="app-header">
+    <div class="brand">
+      <button type="button" id="nav-toggle" class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+      <h1>YasinHub</h1>
     </div>
-
-    <div>
-        <label for="log-filter">جستجو در لاگ‌ها:</label>
-        <input type="text" id="log-filter" placeholder="مثال: ERROR" style="padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-family: inherit;">
+    <div class="header-meta">
+      <span id="connection-status" class="connection-status" role="status" aria-live="polite" aria-atomic="true">…</span>
+      <span id="stale-indicator" class="stale-indicator" hidden title="Data may be stale">stale</span>
+      <button type="button" id="theme-toggle" class="btn-ghost" aria-label="Toggle theme">Theme</button>
     </div>
+  </header>
 
-    <div style="display: flex; align-items: center; gap: 5px;">
-        <input type="checkbox" id="realtime-logs" style="width: 18px; height: 18px; cursor: pointer;">
-        <label for="realtime-logs" style="cursor: pointer; user-select: none;">به‌روزرسانی خودکار (Realtime)</label>
-    </div>
-</div>
+  <div class="app-shell">
+    <nav id="sidebar" class="sidebar" aria-label="Primary">
+      <ul>
+        <li><a href="#/" data-nav="overview">Overview</a></li>
+        <li><a href="#/executions" data-nav="executions">Executions</a></li>
+        <li><a href="#/fleets" data-nav="fleets">Fleets</a></li>
+        <li><a href="#/events" data-nav="events">Events</a></li>
+      </ul>
+      <p class="nav-footnote">Observer · Control plane surface. No shell/filesystem access.</p>
+    </nav>
 
+    <main id="main" class="main">
+      <div class="page-heading">
+        <h2 id="page-title">Overview</h2>
+        <button type="button" id="refresh-btn" class="btn-secondary">Refresh</button>
+      </div>
+      <div id="content" class="content" aria-live="polite">
+        <div class="state state-loading">Loading…</div>
+      </div>
+    </main>
+  </div>
 
-<pre id="logs"></pre>
-
-
-
-
-<script src="app.js"></script>
-
-
+  <script type="module" src="app.js"></script>
 </body>
-
 </html>
