@@ -1,5 +1,6 @@
 /**
- * YasinHub PWA application entry — foundation shell (#56).
+ * YasinHub PWA application entry — live observability (#57).
+ * Polling/revalidation over existing Observer APIs. No lifecycle authority.
  */
 import { parseRoute, onRouteChange, navKey } from "./js/router.js";
 import * as api from "./js/api.js";
@@ -23,7 +24,18 @@ const TITLES = {
   events: "Events",
 };
 
-const appState = { fetchedAt: null, routeName: null };
+/** Poll interval ms — detail views refresh faster. */
+const POLL_LIST_MS = 5000;
+const POLL_DETAIL_MS = 3000;
+
+const appState = {
+  fetchedAt: null,
+  routeName: null,
+  routeKey: null,
+  hasContent: false,
+  pollTimer: null,
+  fetchGen: 0,
+};
 
 function $(id) {
   return document.getElementById(id);
@@ -60,51 +72,123 @@ function setTitle(route) {
   document.title = (TITLES[route.name] || "YasinHub") + " · YasinHub";
 }
 
-async function renderRoute(route) {
+function routeKey(route) {
+  return route.name + ":" + (route.params.id || "");
+}
+
+function updateMetaRow() {
+  let row = $("live-meta");
+  if (!row) {
+    const heading = document.querySelector(".page-heading");
+    if (!heading) return;
+    row = document.createElement("div");
+    row.id = "live-meta";
+    row.className = "meta-row";
+    heading.insertAdjacentElement("afterend", row);
+  }
+  const ts = appState.fetchedAt
+    ? new Date(appState.fetchedAt).toLocaleTimeString()
+    : "—";
+  const polling = appState.pollTimer != null && navigator.onLine && !document.hidden;
+  row.innerHTML = `
+    ${polling ? '<span class="live-dot" title="Live polling"></span><span>Live</span>' : "<span>Idle</span>"}
+    <span>Updated ${ts}</span>`;
+}
+
+function stopPolling() {
+  if (appState.pollTimer != null) {
+    clearInterval(appState.pollTimer);
+    appState.pollTimer = null;
+  }
+}
+
+function startPolling(route) {
+  stopPolling();
+  if (!navigator.onLine || document.hidden) {
+    updateMetaRow();
+    return;
+  }
+  const isDetail =
+    route.name === "execution-detail" || route.name === "fleet-detail";
+  const ms = isDetail ? POLL_DETAIL_MS : POLL_LIST_MS;
+  appState.pollTimer = setInterval(() => {
+    if (document.hidden || !navigator.onLine) return;
+    renderRoute(parseRoute(), { soft: true });
+  }, ms);
+  updateMetaRow();
+}
+
+/**
+ * @param {import('./js/router.js').Route} route
+ * @param {{soft?: boolean}} [opts]
+ */
+async function renderRoute(route, opts) {
+  const soft = Boolean(opts && opts.soft);
   const content = $("content");
   if (!content) return;
+
+  const key = routeKey(route);
+  const routeChanged = key !== appState.routeKey;
   appState.routeName = route.name;
-  setTitle(route);
-  setActiveNav(route);
+  appState.routeKey = key;
+
+  if (routeChanged) {
+    setTitle(route);
+    setActiveNav(route);
+    appState.hasContent = false;
+  }
   setConnectionStatus();
-  renderLoading(content, "Loading…");
+
+  if (!soft || !appState.hasContent) {
+    renderLoading(content, soft ? "Refreshing…" : "Loading…");
+  }
+
+  const gen = ++appState.fetchGen;
 
   try {
     if (route.name === "overview") {
       const result = await api.getSystemDashboard();
-      if (route.name !== appState.routeName) return;
+      if (gen !== appState.fetchGen) return;
       if (result.offline) {
         renderError(content, "Offline — cannot load system status.", true);
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       if (!result.ok) {
         renderError(content, result.message || "Failed to load system status.");
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       renderOverview(content, result.data);
       appState.fetchedAt = Date.now();
+      appState.hasContent = true;
       setStale(false);
+      updateMetaRow();
       return;
     }
 
     if (route.name === "executions") {
       const result = await api.listExecutions();
-      if (route.name !== appState.routeName) return;
+      if (gen !== appState.fetchGen) return;
       if (result.offline) {
         renderError(content, "Offline — cannot load executions.", true);
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       if (!result.ok) {
         renderError(content, result.message || "Failed to load executions.");
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       renderExecutionsList(content, result.executions || []);
       appState.fetchedAt = Date.now();
+      appState.hasContent = true;
       setStale(false);
+      updateMetaRow();
       return;
     }
 
@@ -114,10 +198,11 @@ async function renderRoute(route) {
         api.getExecution(id),
         api.listExecutionEvents(id),
       ]);
-      if (route.name !== appState.routeName) return;
+      if (gen !== appState.fetchGen) return;
       if (execRes.offline) {
         renderError(content, "Offline — cannot load execution.", true);
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       if (!execRes.ok || !execRes.execution) {
@@ -127,40 +212,48 @@ async function renderRoute(route) {
             : execRes.message || "Failed to load execution.";
         renderError(content, msg);
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       const events = eventsRes.ok ? eventsRes.events || [] : [];
       renderExecutionDetail(content, execRes.execution, events);
       appState.fetchedAt = Date.now();
+      appState.hasContent = true;
       setStale(!eventsRes.ok);
+      updateMetaRow();
       return;
     }
 
     if (route.name === "fleets") {
       const result = await api.listFleets();
-      if (route.name !== appState.routeName) return;
+      if (gen !== appState.fetchGen) return;
       if (result.offline) {
         renderError(content, "Offline — cannot load fleets.", true);
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       if (!result.ok) {
         renderError(content, result.message || "Failed to load fleets.");
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       renderFleetsList(content, result.fleets || []);
       appState.fetchedAt = Date.now();
+      appState.hasContent = true;
       setStale(false);
+      updateMetaRow();
       return;
     }
 
     if (route.name === "fleet-detail") {
       const result = await api.getFleet(route.params.id);
-      if (route.name !== appState.routeName) return;
+      if (gen !== appState.fetchGen) return;
       if (result.offline) {
         renderError(content, "Offline — cannot load fleet.", true);
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       if (!result.ok || !result.fleet) {
@@ -170,35 +263,44 @@ async function renderRoute(route) {
             : result.message || "Failed to load fleet.";
         renderError(content, msg);
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       renderFleetDetail(content, result.fleet);
       appState.fetchedAt = Date.now();
+      appState.hasContent = true;
       setStale(false);
+      updateMetaRow();
       return;
     }
 
     if (route.name === "events") {
       const result = await api.listEvents({ limit: 100 });
-      if (route.name !== appState.routeName) return;
+      if (gen !== appState.fetchGen) return;
       if (result.offline) {
         renderError(content, "Offline — cannot load events.", true);
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       if (!result.ok) {
         renderError(content, result.message || "Failed to load events.");
         setStale(true);
+        appState.hasContent = false;
         return;
       }
       renderEventsTimeline(content, result.events || []);
       appState.fetchedAt = Date.now();
+      appState.hasContent = true;
       setStale(false);
+      updateMetaRow();
       return;
     }
   } catch (e) {
+    if (gen !== appState.fetchGen) return;
     renderError(content, e && e.message ? String(e.message) : "Unexpected error");
     setStale(true);
+    appState.hasContent = false;
   }
 }
 
@@ -220,16 +322,28 @@ function wireChrome() {
   const refreshBtn = $("refresh-btn");
   if (refreshBtn) {
     refreshBtn.addEventListener("click", () => {
-      renderRoute(parseRoute());
+      renderRoute(parseRoute(), { soft: false });
     });
   }
   window.addEventListener("online", () => {
     setConnectionStatus();
-    renderRoute(parseRoute());
+    renderRoute(parseRoute(), { soft: true });
+    startPolling(parseRoute());
   });
   window.addEventListener("offline", () => {
     setConnectionStatus();
     setStale(true);
+    stopPolling();
+    updateMetaRow();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      stopPolling();
+      updateMetaRow();
+    } else {
+      renderRoute(parseRoute(), { soft: true });
+      startPolling(parseRoute());
+    }
   });
 }
 
@@ -249,9 +363,11 @@ function boot() {
   onRouteChange((route) => {
     const sidebar = $("sidebar");
     if (sidebar) sidebar.classList.remove("open");
-    renderRoute(route);
+    stopPolling();
+    renderRoute(route, { soft: false }).then(() => startPolling(route));
   });
-  renderRoute(parseRoute());
+  const initial = parseRoute();
+  renderRoute(initial, { soft: false }).then(() => startPolling(initial));
 }
 
 boot();
