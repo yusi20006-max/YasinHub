@@ -8,6 +8,12 @@ from .correlation import (
     get_correlation_store,
     bind_execution_from_snapshot,
 )
+from .reconciliation import (
+    ReconciliationEngine,
+    ReconcileReport,
+    HealthState,
+    get_reconciliation_engine,
+)
 
 __all__ = [
     "PolicyEngine",
@@ -19,4 +25,8 @@ __all__ = [
     "CorrelationConflict",
     "get_correlation_store",
     "bind_execution_from_snapshot",
+    "ReconciliationEngine",
+    "ReconcileReport",
+    "HealthState",
+    "get_reconciliation_engine",
 ]
