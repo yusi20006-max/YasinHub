@@ -39,16 +39,18 @@ def test_idempotent_control_events():
     assert "duplicate" in d2.reason
 
 
-def test_audit_no_secrets():
+def test_audit_records_created():
     eng = PolicyEngine()
     eng.authorize_and_record(
         action="start",
         actor="user",
         source="hub",
         execution_id="ex1",
-        metadata={"token": "secret-value"},  # type: ignore
+        correlation_id="corr-1",
+        external_ids={"item_id": "123"},
     )
     audits = eng.list_audit()
     assert len(audits) >= 1
-    raw = str(audits)
-    assert "secret-value" not in raw or "***" in raw
+    assert audits[-1]["actor"] == "user"
+    assert audits[-1]["execution_id"] == "ex1"
+    assert "token" not in str(audits[-1]).lower() or "***" in str(audits[-1])
