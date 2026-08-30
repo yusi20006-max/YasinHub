@@ -13,7 +13,6 @@ from ..observer.execution_store import redact_secrets
 
 logger = logging.getLogger(__name__)
 
-# Privileged operations default deny
 PRIVILEGED_OPS = {"merge", "production_merge", "force_push", "delete_branch"}
 
 
@@ -60,7 +59,7 @@ class AuditRecord:
 class PolicyEngine:
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._approvals: Dict[str, Dict[str, Any]] = {}  # key: execution_id:action
+        self._approvals: Dict[str, Dict[str, Any]] = {}
         self._audit: List[AuditRecord] = []
         self._seen_control: Set[str] = set()
 
@@ -85,8 +84,16 @@ class PolicyEngine:
                 "privileged",
                 requires_approval=True,
             )
-        # default allow for start/cancel/retry/re-run under normal ops
-        if action_l in ("start", "cancel", "retry", "re-run", "approve", "reject"):
+        if action_l in (
+            "start",
+            "cancel",
+            "retry",
+            "re-run",
+            "approve",
+            "reject",
+            "pause",
+            "resume",
+        ):
             return PolicyDecision(True, "standard control action", "default-allow", False)
         return PolicyDecision(True, "default allow", "default", False)
 
@@ -156,11 +163,30 @@ class PolicyEngine:
         control_event_id: Optional[str] = None,
         **policy_kwargs: Any,
     ) -> PolicyDecision:
-        # Idempotency for control events
+        # Shared-state idempotency across workers/restarts (#93)
         if control_event_id:
+            from ..storage.shared_state import NS_CONTROL_EVENTS, get_shared_state
+
+            store = get_shared_state()
+            claimed = store.compare_and_set(
+                NS_CONTROL_EVENTS,
+                control_event_id,
+                None,
+                {
+                    "claimed_at": time.time(),
+                    "action": action,
+                    "actor": actor,
+                    "source": source,
+                },
+                ttl_seconds=7 * 24 * 3600,
+            )
+            if not claimed:
+                with self._lock:
+                    self._seen_control.add(control_event_id)
+                return PolicyDecision(
+                    False, "duplicate control event", "idempotency", False
+                )
             with self._lock:
-                if control_event_id in self._seen_control:
-                    return PolicyDecision(False, "duplicate control event", "idempotency", False)
                 self._seen_control.add(control_event_id)
 
         decision = self.evaluate(action=action, execution_id=execution_id, **policy_kwargs)
@@ -173,7 +199,10 @@ class PolicyEngine:
             policy_decision="allow" if decision.allowed else "deny",
             outcome="authorized" if decision.allowed else "denied",
             external_ids=external_ids or {},
-            metadata={"reason": decision.reason, "requires_approval": decision.requires_approval},
+            metadata={
+                "reason": decision.reason,
+                "requires_approval": decision.requires_approval,
+            },
         )
         return decision
 
