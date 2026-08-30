@@ -340,9 +340,21 @@ async function handleControlClick(btn) {
     } else if (action === "resume") {
       result = await api.resumeExecution(id);
     } else if (action === "cancel") {
-      result = await api.cancelExecution(id);
+      // Prefer unified Control API; fall back to legacy observer path
+      result = await api.controlCancelViaAPI(id);
+      if (!result.ok && result.status !== 403) {
+        result = await api.cancelExecution(id);
+      }
     } else if (action === "fleet-cancel") {
       result = await api.cancelFleet(id);
+    } else if (action === "retry") {
+      result = await api.controlRetry(id);
+    } else if (action === "re-run") {
+      result = await api.controlRerun(id);
+    } else if (action === "approve") {
+      result = await api.controlApprove(id, "production_merge");
+    } else if (action === "reject") {
+      result = await api.controlReject(id, "production_merge");
     } else {
       setControlFeedback("Unknown action.", true);
       setControlsBusy(false);
@@ -355,14 +367,18 @@ async function handleControlClick(btn) {
   }
 
   if (!result.ok) {
-    setControlFeedback(formatControlError(result), true);
+    const msg =
+      result.policyDenied || (result.status === 403)
+        ? "Policy denied: " + (result.message || (result.control && result.control.error) || "not allowed")
+        : formatControlError(result);
+    setControlFeedback(msg, true);
     setControlsBusy(false);
     await renderRoute(parseRoute(), { soft: true });
     return;
   }
 
   const rid = result.requestId ? " req=" + result.requestId : "";
-  setControlFeedback("OK: " + (result.action || action) + rid, false);
+  setControlFeedback("OK: " + (result.action || (result.control && result.control.action) || action) + rid, false);
   await renderRoute(parseRoute(), { soft: true });
 }
 
