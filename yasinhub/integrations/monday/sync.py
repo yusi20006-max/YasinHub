@@ -15,7 +15,6 @@ from ...observer.execution_store import get_default_store
 
 logger = logging.getLogger(__name__)
 
-# Hub status -> monday status label
 STATUS_MAP = {
     "queued": "Queued",
     "running": "Running",
@@ -31,7 +30,7 @@ class MondaySyncService:
         self._config = config or get_monday_config()
         self._client = MondayClient(self._config)
         self._lock = threading.RLock()
-        self._push_origins: Set[str] = set()  # prevent sync loops
+        self._push_origins: Set[str] = set()
 
     def mark_hub_origin(self, item_id: str) -> None:
         with self._lock:
@@ -60,22 +59,20 @@ class MondaySyncService:
         if not board_id or not item_id:
             return {"success": False, "error": "no monday external refs"}
 
-        if self.is_hub_origin(str(item_id)):
-            # still allow push; origin flag is for inbound filtering
-            pass
-
         self.mark_hub_origin(str(item_id))
-        updates = {}
+        updates: Dict[str, Any] = {}
         cfg = self._config
 
-        if not self._client.available:
+        # Safe default: dry-run unless live-ready
+        if not self._client.live_ready:
             return {
                 "success": True,
                 "dry_run": True,
-                "message": "monday client not configured; state recorded locally",
+                "message": "monday live writes not enabled or not fully configured",
                 "mapped_status": self.map_status(snap.status),
                 "execution_id": execution_id,
                 "item_id": item_id,
+                "live_ready": False,
             }
 
         try:
@@ -98,20 +95,38 @@ class MondaySyncService:
                 self._client.change_column_value(
                     str(board_id), str(item_id), cfg.result_column_id, str(snap.result)[:500]
                 )
+            if cfg.correlation_column_id and meta.get("correlation_id"):
+                self._client.change_column_value(
+                    str(board_id),
+                    str(item_id),
+                    cfg.correlation_column_id,
+                    str(meta["correlation_id"]),
+                )
         except MondayClientError as e:
-            logger.warning("monday sync push failed: %s", e)
-            return {"success": False, "error": str(e)}
+            logger.warning("monday sync push failed (retriable=%s): %s", e.retriable, e)
+            return {
+                "success": False,
+                "error": str(e),
+                "retriable": e.retriable,
+                "item_id": item_id,
+            }
 
-        return {"success": True, "updates": updates, "item_id": item_id}
+        return {"success": True, "updates": updates, "item_id": item_id, "dry_run": False}
 
     def reconcile(self) -> Dict[str, Any]:
-        """Repair missed webhook updates by pushing all known executions."""
         store = get_default_store()
         results = []
         for snap in store.list_executions():
             if (snap.metadata or {}).get("source") == "monday":
                 results.append(self.push_execution_to_monday(snap.execution_id))
-        return {"success": True, "reconciled": len(results), "results": results}
+        ok = sum(1 for r in results if r.get("success"))
+        return {
+            "success": True,
+            "reconciled": len(results),
+            "succeeded": ok,
+            "failed": len(results) - ok,
+            "results": results,
+        }
 
 
 _sync: Optional[MondaySyncService] = None
