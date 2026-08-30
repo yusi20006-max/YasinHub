@@ -66,4 +66,19 @@ def handle_integration_routes(
         send_json(get_monday_adapter().sync_status())
         return True
 
+    # --- GitHub ---
+    if clean_path in (
+        "/v1/integrations/github/webhook",
+        "/api/integrations/github/webhook",
+    ):
+        if method != "POST":
+            send_json({"success": False, "error": "method not allowed"}, status=405)
+            return True
+        body = read_raw_body(headers, rfile)
+        from ..integrations.github.webhook import handle_github_webhook
+
+        status, result = handle_github_webhook(body, headers=headers)
+        send_json(result, status=status)
+        return True
+
     return False
