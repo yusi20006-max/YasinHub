@@ -72,7 +72,6 @@ def handle_slack_routes(
     *,
     adapter: Optional[SlackAdapter] = None,
 ) -> bool:
-    """Handle Slack-related HTTP routes. Returns True if the request was consumed."""
     if not clean_path.startswith("/api/integrations/slack"):
         return False
 
@@ -157,6 +156,46 @@ def handle_slack_routes(
             status=200,
         )
         return True
+
+    if event.event_type == SlackEventType.EVENT_CALLBACK:
+        text = event.text or ""
+        if text and ("@yasin" in text.lower() or "<@" in text):
+            try:
+                from ..interface.slack_bridge import handle_slack_message, render_slack_response
+                from ..integrations.slack.permissions import IdentityStore
+
+                identity = IdentityStore().resolve(event.slack_user_id)
+                yasin_uid = identity.yasin_user_id if identity else None
+                resp = handle_slack_message(
+                    text,
+                    slack_user_id=event.slack_user_id,
+                    yasin_user_id=yasin_uid,
+                    channel_id=event.channel_id,
+                    thread_ts=event.correlation_id,
+                    event_ts=event.request_id,
+                )
+                payload_out = render_slack_response(resp)
+                send_json(
+                    {
+                        "ok": resp.success or bool(resp.answer),
+                        "response_type": "in_channel",
+                        "text": payload_out["text"],
+                        "request_id": event.request_id,
+                        "intent": resp.intent_kind,
+                        "confirmation_required": resp.confirmation_required,
+                    }
+                )
+                return True
+            except Exception as exc:
+                logger.warning("yasin_interface_failed error=%s", type(exc).__name__)
+                send_json(
+                    {
+                        "ok": False,
+                        "text": "Yasin Interface encountered an error; Control Plane remains healthy.",
+                        "request_id": event.request_id,
+                    }
+                )
+                return True
 
     logger.info(
         "slack_event_accepted type=%s request_id=%s",
