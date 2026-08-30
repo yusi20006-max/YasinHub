@@ -1,7 +1,7 @@
 """monday Adapter — ingests normalized events, provides health/sync surfaces.
 
-Never dispatches Agents. Downstream stages (#65+) consume the normalized
-events via the internal event bus / store.
+Never dispatches Agents. Downstream stages consume normalized events via
+the internal event bus / store.
 """
 
 from __future__ import annotations
@@ -32,14 +32,9 @@ class MondayAdapter:
         return self._config
 
     def ingest_normalized_event(self, event: MondayNormalizedEvent) -> bool:
-        """Idempotent ingest of a normalized monday event.
-
-        Returns True if newly accepted, False if duplicate.
-        """
         with self._lock:
             if event.event_id in self._seen_ids:
                 return False
-            # also key by correlation + type for stronger idempotency
             dedup_key = f"{event.correlation_id}:{event.event_type}:{event.item_id}"
             if dedup_key in self._seen_ids:
                 return False
@@ -56,7 +51,6 @@ class MondayAdapter:
             event.correlation_id,
         )
 
-        # Bridge to Execution Runtime for task.ready (Agent remains unaware of monday)
         if event.event_type == "task.ready":
             try:
                 from .runtime_bridge import get_runtime_bridge
@@ -87,25 +81,46 @@ class MondayAdapter:
 
     def health(self) -> Dict[str, Any]:
         cfg = self._config
+        ok, issues = cfg.validate()
+        client_health = None
+        try:
+            from .client import MondayClient
+
+            client_health = MondayClient(cfg).health_check()
+        except Exception:
+            client_health = {"ok": False, "mode": "error"}
+
+        status = "ok"
+        if not (cfg.enabled or cfg.has_credentials()):
+            status = "disabled"
+        elif not ok:
+            status = "misconfigured"
+        elif cfg.live_writes_enabled and not cfg.is_live_ready():
+            status = "degraded"
+
         return {
             "service": "monday-integration",
-            "status": "ok" if cfg.enabled or cfg.has_credentials() else "disabled",
+            "status": status,
             "enabled": cfg.enabled,
+            "live_ready": cfg.is_live_ready(),
+            "config_valid": ok,
+            "config_issues": issues,
             "has_credentials": cfg.has_credentials(),
             "has_signing_secret": cfg.has_signing_secret(),
             "events_ingested": len(self._events),
             "last_ingest_at": self._last_ingest_at,
+            "client": client_health,
             "config": cfg.as_safe_dict(),
         }
 
     def sync_status(self) -> Dict[str, Any]:
-        """Manual reconciliation entry point (foundation for #67)."""
-        return {
-            "success": True,
-            "message": "sync endpoint ready; full bidirectional sync in #67",
-            "pending_events": len(self._events),
-            "boards": list(self._config.default_board_ids),
-        }
+        try:
+            from .sync import get_sync_service
+
+            return get_sync_service().reconcile()
+        except Exception as e:
+            logger.exception("monday reconcile failed")
+            return {"success": False, "error": str(e)[:200]}
 
     def clear(self) -> None:
         with self._lock:
