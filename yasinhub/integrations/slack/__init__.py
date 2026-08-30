@@ -14,6 +14,14 @@ from .events import (
     SlackEventType,
 )
 from .adapter import SlackAdapter, get_slack_adapter, set_slack_adapter
+from .permissions import (
+    SlackRole,
+    YasinIdentity,
+    IdentityStore,
+    AuthorizationError,
+    authorize_command,
+)
+from .commands import CommandDispatcher, parse_command, CommandResult
 
 __all__ = [
     "SlackConfig",
@@ -30,4 +38,12 @@ __all__ = [
     "SlackAdapter",
     "get_slack_adapter",
     "set_slack_adapter",
+    "SlackRole",
+    "YasinIdentity",
+    "IdentityStore",
+    "AuthorizationError",
+    "authorize_command",
+    "CommandDispatcher",
+    "parse_command",
+    "CommandResult",
 ]

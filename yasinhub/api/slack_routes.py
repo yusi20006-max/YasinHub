@@ -130,8 +130,25 @@ def handle_slack_routes(
         send_json(result)
         return True
 
-    # Foundation only: accept and acknowledge. Commands / interactive
-    # handling is added in subsequent issues (#71–#73).
+    # Slash commands (#71)
+    if event.event_type == SlackEventType.SLASH_COMMAND or clean_path.endswith("/commands"):
+        if not slack.config.feature_commands:
+            send_json({"ok": False, "error": "commands_disabled"}, status=503)
+            return True
+        from ..integrations.slack.commands import CommandDispatcher
+        dispatcher = CommandDispatcher()
+        result = dispatcher.dispatch(event)
+        send_json(
+            {
+                "ok": result.ok,
+                "response_type": "ephemeral",
+                "text": result.text,
+                "request_id": event.request_id,
+            },
+            status=200,
+        )
+        return True
+
     logger.info(
         "slack_event_accepted type=%s request_id=%s",
         event.event_type.value,
