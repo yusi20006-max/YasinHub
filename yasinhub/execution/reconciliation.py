@@ -1,5 +1,5 @@
 """
-Production observability and reconciliation control plane (#83).
+Production observability and reconciliation control plane (#83/#93).
 
 Detects inconsistencies across monday ↔ YasinHub execution ↔ GitHub ↔ Agent
 without performing privileged mutations by default.
@@ -216,6 +216,60 @@ def control_plane_readiness() -> Dict[str, Any]:
 
 
 def reconcile(
+    *,
+    dry_run: bool = True,
+    stale_seconds: float = STALE_SECONDS_DEFAULT,
+    now: Optional[float] = None,
+    worker_id: Optional[str] = None,
+    skip_lock: bool = False,
+) -> ReconciliationReport:
+    """Idempotent dry-run by default. Coordinated across workers via shared lock (#93)."""
+    import uuid as _uuid
+
+    owner = worker_id or f"worker-{_uuid.uuid4().hex[:8]}"
+    lock_acquired = True
+    if not skip_lock:
+        try:
+            from ..storage.shared_state import NS_RECONCILE_LOCKS, get_shared_state
+
+            lock_acquired = get_shared_state().try_acquire(
+                NS_RECONCILE_LOCKS, "global", owner, ttl_seconds=30.0
+            )
+        except Exception:
+            lock_acquired = True
+
+    if not lock_acquired:
+        if _last_report is not None:
+            return _last_report
+        return ReconciliationReport(
+            generated_at=now if now is not None else time.time(),
+            findings=[
+                Finding(
+                    kind=FindingKind.REPEATED_RECONCILE,
+                    severity="info",
+                    message="reconcile skipped — another worker holds the lock",
+                    details={"owner_attempt": owner},
+                )
+            ],
+            integrations=integration_health(),
+            summary={"total": 1, "skipped": 1},
+            dry_run=dry_run,
+            pass_number=_reconcile_passes,
+        )
+
+    try:
+        return _reconcile_body(dry_run=dry_run, stale_seconds=stale_seconds, now=now)
+    finally:
+        if not skip_lock and lock_acquired:
+            try:
+                from ..storage.shared_state import NS_RECONCILE_LOCKS, get_shared_state
+
+                get_shared_state().release(NS_RECONCILE_LOCKS, "global", owner)
+            except Exception:
+                pass
+
+
+def _reconcile_body(
     *,
     dry_run: bool = True,
     stale_seconds: float = STALE_SECONDS_DEFAULT,
