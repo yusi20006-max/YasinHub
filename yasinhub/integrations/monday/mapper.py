@@ -35,14 +35,10 @@ def _extract_column_values(raw: Any) -> Dict[str, Any]:
 
 def _detect_event_type(payload: Dict[str, Any], status: Optional[str], cfg: MondayConfig) -> str:
     """Map monday event + status to internal event type."""
-    raw_type = (
-        payload.get("type")
-        or payload.get("event", {}).get("type")
-        if isinstance(payload.get("event"), dict)
-        else None
-        or payload.get("eventType")
-        or ""
-    )
+    raw_type = payload.get("type") or payload.get("eventType") or ""
+    event = payload.get("event")
+    if isinstance(event, dict):
+        raw_type = raw_type or event.get("type") or ""
     raw_type = str(raw_type).lower()
 
     if status and any(s.lower() == str(status).lower() for s in cfg.status_ready_values):
@@ -118,7 +114,14 @@ def normalize_monday_payload(
     if cfg.correlation_column_id and cfg.correlation_column_id in column_values:
         correlation_id = str(column_values[cfg.correlation_column_id])
     if not correlation_id:
-        correlation_id = f"mon-{board_id}-{item_id}" if board_id and item_id else f"mon-{uuid.uuid4().hex[:12]}"
+        correlation_id = (
+            f"mon-{board_id}-{item_id}" if board_id and item_id else f"mon-{uuid.uuid4().hex[:12]}"
+        )
+
+    raw_event_type = payload.get("type") or ""
+    event = payload.get("event")
+    if isinstance(event, dict):
+        raw_event_type = raw_event_type or event.get("type") or ""
 
     evt = MondayNormalizedEvent(
         event_id=f"mon-evt-{uuid.uuid4().hex[:16]}",
@@ -135,13 +138,7 @@ def normalize_monday_payload(
             "user_id": event_obj.get("userId") or event_obj.get("user_id"),
             "trigger_time": event_obj.get("triggerTime") or event_obj.get("trigger_time"),
         },
-        raw_event_type=str(
-            payload.get("type")
-            or (payload.get("event") or {}).get("type")
-            if isinstance(payload.get("event"), dict)
-            else payload.get("type")
-            or ""
-        ),
+        raw_event_type=str(raw_event_type or ""),
     )
     events.append(evt)
     return events
