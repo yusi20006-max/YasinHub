@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
-from unittest import mock
 
 import pytest
 
@@ -93,9 +91,11 @@ def test_health_endpoint_shape():
     assert h["service"] == "monday-integration"
     assert "has_credentials" in h
     assert "config" in h
-    # secrets never appear
-    assert "api_token" not in json.dumps(h)
-    assert "signing_secret" not in json.dumps(h)
+    raw = json.dumps(h)
+    # actual secret values must never appear; boolean flags are OK
+    assert ": \"tok\"" not in raw
+    assert ": \"sec\"" not in raw
+    assert "supersecret" not in raw
 
 
 def test_signature_required_when_configured():
@@ -132,8 +132,8 @@ def test_valid_webhook_accepted_without_secret():
 
 
 def test_config_safe_dict_hides_secrets():
-    cfg = MondayConfig(api_token="tok", signing_secret="sec", enabled=True)
+    cfg = MondayConfig(api_token="tok_secret_value", signing_secret="sec_secret_value", enabled=True)
     d = cfg.as_safe_dict()
     assert d["has_api_token"] is True
-    assert "tok" not in str(d)
-    assert "sec" not in str(d)
+    assert "tok_secret_value" not in str(d)
+    assert "sec_secret_value" not in str(d)
