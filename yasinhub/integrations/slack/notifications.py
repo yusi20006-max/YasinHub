@@ -1,14 +1,16 @@
 """
-Outbound Slack notifications for execution lifecycle events (#72).
+Outbound Slack notifications for execution lifecycle events (#72/#93).
 
 Best-effort only: notification failure must never fail the underlying execution.
 Thread correlation groups updates under a root message per execution.
+Thread map uses SharedStateStore so multiple workers resolve the same thread.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any, Dict, Optional
 
 from .adapter import SlackAdapter, get_slack_adapter
@@ -103,12 +105,36 @@ class SlackNotifier:
         thread_ts: Optional[str] = None
         with self._lock:
             thread_ts = self._threads.get(execution_id)
+        if thread_ts is None:
+            try:
+                from ...storage.shared_state import NS_SLACK_THREADS, get_shared_state
+
+                shared = get_shared_state().get(NS_SLACK_THREADS, execution_id)
+                if isinstance(shared, dict):
+                    thread_ts = shared.get("thread_ts") or shared.get("ts")
+                elif isinstance(shared, str):
+                    thread_ts = shared
+                if thread_ts:
+                    with self._lock:
+                        self._threads[execution_id] = thread_ts
+            except Exception:
+                logger.debug("slack_thread_lookup_failed", exc_info=True)
 
         try:
             result = self.adapter.post_message(channel, text, thread_ts=thread_ts)
             if result.ok and result.ts and thread_ts is None:
                 with self._lock:
                     self._threads[execution_id] = result.ts
+                try:
+                    from ...storage.shared_state import NS_SLACK_THREADS, get_shared_state
+
+                    get_shared_state().set(
+                        NS_SLACK_THREADS,
+                        execution_id,
+                        {"thread_ts": result.ts, "channel": channel, "updated_at": time.time()},
+                    )
+                except Exception:
+                    logger.debug("slack_thread_persist_failed", exp_info=True)
             if not result.ok:
                 self._failures += 1
                 logger.warning(
