@@ -110,11 +110,12 @@ class ControlAPI:
                 request_id=request_id,
             )
 
-        # Policy gate
+        # Policy gate — authorize the control action itself (approve/reject),
+        # not the privileged target being approved. Target gating happens
+        # when the privileged op is later attempted.
         policy = get_policy_engine()
-        target = request.target_action or request.action
         decision = policy.authorize_and_record(
-            action=target,
+            action=request.action,
             actor=request.actor,
             source=request.source,
             execution_id=execution_id,
