@@ -150,3 +150,20 @@ export function canCancelFleet(status) {
   const s = String(status || "").toLowerCase();
   return !["succeeded", "failed", "cancelled"].includes(s);
 }
+
+/** Retry/re-run from terminal failure or cancel. */
+export function canRetry(status) {
+  const s = String(status || "").toLowerCase();
+  return ["failed", "cancelled"].includes(s);
+}
+
+/** Start from queued. */
+export function canStart(status) {
+  return String(status || "").toLowerCase() === "queued";
+}
+
+/** Approve/reject available when not fully terminal success/cancel. */
+export function canApprove(status) {
+  const s = String(status || "").toLowerCase();
+  return !["succeeded", "cancelled"].includes(s);
+}
