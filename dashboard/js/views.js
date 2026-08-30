@@ -52,7 +52,11 @@ function controlBarHtml(kind, id, status) {
     buttons.push(
       `<button type="button" class="btn-secondary ctrl-btn" data-ctrl="pause" data-id="${escapeHtml(id)}" ${canPause(status) ? "" : "disabled"}>Pause</button>`,
       `<button type="button" class="btn-secondary ctrl-btn" data-ctrl="resume" data-id="${escapeHtml(id)}" ${canResume(status) ? "" : "disabled"}>Resume</button>`,
-      `<button type="button" class="btn-danger ctrl-btn" data-ctrl="cancel" data-id="${escapeHtml(id)}" data-confirm="Cancel this execution? This cannot be undone." ${canCancel(status) ? "" : "disabled"}>Cancel</button>`
+      `<button type="button" class="btn-danger ctrl-btn" data-ctrl="cancel" data-id="${escapeHtml(id)}" data-confirm="Cancel this execution? This cannot be undone." ${canCancel(status) ? "" : "disabled"}>Cancel</button>`,
+      `<button type="button" class="btn-secondary ctrl-btn" data-ctrl="retry" data-id="${escapeHtml(id)}" data-confirm="Retry this execution via Control API?">Retry</button>`,
+      `<button type="button" class="btn-secondary ctrl-btn" data-ctrl="re-run" data-id="${escapeHtml(id)}" data-confirm="Re-run this execution via Control API?">Re-run</button>`,
+      `<button type="button" class="btn-primary ctrl-btn" data-ctrl="approve" data-id="${escapeHtml(id)}" data-confirm="Approve privileged operation (production_merge) for this execution?">Approve</button>`,
+      `<button type="button" class="btn-danger ctrl-btn" data-ctrl="reject" data-id="${escapeHtml(id)}" data-confirm="Reject privileged operation for this execution?">Reject</button>`
     );
   } else if (kind === "fleet") {
     buttons.push(
