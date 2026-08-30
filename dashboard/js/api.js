@@ -67,7 +67,7 @@ export async function getJSON(path) {
 
 /**
  * @param {Object} [filters]
- * @returns {Promise<ApiResult & {executions?: import('./models.js').ExecutionModel[]}>}
+ * @returns {Promise<ApiResult & {executions?: import('./models.js').ExecutionModel[]}>
  */
 export async function listExecutions(filters) {
   const qs = new URLSearchParams();
@@ -291,4 +291,97 @@ export async function cancelFleet(taskId, opts) {
     fleet,
     requestId: result.data.request_id || requestId,
   };
+}
+
+/**
+ * Unified Control API (#81/#82) — channel-neutral control surface.
+ * All privileged operations go through /api/control.
+ * @param {Object} payload
+ * @returns {Promise<ApiResult & {control?: Object}>}
+ */
+export async function controlCommand(payload) {
+  const body = {
+    action: payload.action,
+    actor: payload.actor || "pwa-user",
+    source: "pwa",
+    execution_id: payload.execution_id || undefined,
+    correlation_id: payload.correlation_id || undefined,
+    control_event_id: payload.control_event_id || payload.requestId || newRequestId(),
+    target_action: payload.target_action || undefined,
+    metadata: payload.metadata || {},
+  };
+  const result = await postJSON("/api/control", body);
+  if (!result.ok || !result.data) {
+    return {
+      ...result,
+      control: result.data || null,
+      policyDenied: result.status === 403,
+      requestId: body.control_event_id,
+    };
+  }
+  const data = result.data;
+  const exec = data.execution ? normalizeExecution(data.execution) : null;
+  return {
+    ...result,
+    control: data,
+    execution: exec,
+    policyDenied: data.success === false && (data.policy && data.policy.allowed === false),
+    requestId: data.request_id || body.control_event_id,
+  };
+}
+
+export async function controlStatus(executionId, opts) {
+  return controlCommand({
+    action: "status",
+    execution_id: executionId,
+    actor: opts && opts.actor,
+    correlation_id: opts && opts.correlation_id,
+  });
+}
+
+export async function controlApprove(executionId, targetAction, opts) {
+  return controlCommand({
+    action: "approve",
+    execution_id: executionId,
+    target_action: targetAction || "production_merge",
+    actor: opts && opts.actor,
+    correlation_id: opts && opts.correlation_id,
+  });
+}
+
+export async function controlReject(executionId, targetAction, opts) {
+  return controlCommand({
+    action: "reject",
+    execution_id: executionId,
+    target_action: targetAction || "production_merge",
+    actor: opts && opts.actor,
+    correlation_id: opts && opts.correlation_id,
+  });
+}
+
+export async function controlRetry(executionId, opts) {
+  return controlCommand({
+    action: "retry",
+    execution_id: executionId,
+    actor: opts && opts.actor,
+    correlation_id: opts && opts.correlation_id,
+  });
+}
+
+export async function controlRerun(executionId, opts) {
+  return controlCommand({
+    action: "re-run",
+    execution_id: executionId,
+    actor: opts && opts.actor,
+    correlation_id: opts && opts.correlation_id,
+  });
+}
+
+export async function controlCancelViaAPI(executionId, opts) {
+  return controlCommand({
+    action: "cancel",
+    execution_id: executionId,
+    actor: opts && opts.actor,
+    correlation_id: opts && opts.correlation_id,
+  });
 }
