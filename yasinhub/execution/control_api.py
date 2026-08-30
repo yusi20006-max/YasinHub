@@ -19,7 +19,7 @@ from .policies import get_policy_engine
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_ACTIONS = ("status", "start", "cancel", "retry", "re-run", "approve", "reject")
+SUPPORTED_ACTIONS = ("status", "start", "cancel", "retry", "re-run", "approve", "reject", "pause", "resume")
 
 
 @dataclass
@@ -30,7 +30,7 @@ class ControlRequest:
     execution_id: Optional[str] = None
     correlation_id: Optional[str] = None
     control_event_id: Optional[str] = None
-    target_action: Optional[str] = None  # for approve/reject of privileged ops
+    target_action: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -76,8 +76,6 @@ class ControlResponse:
 
 
 class ControlAPI:
-    """Central control command dispatcher."""
-
     def handle(self, request: ControlRequest) -> ControlResponse:
         request_id = request.control_event_id or f"ctrl-{uuid.uuid4().hex[:12]}"
 
@@ -90,7 +88,6 @@ class ControlAPI:
                 request_id=request_id,
             )
 
-        # Resolve execution via id or correlation
         execution_id = request.execution_id
         corr_id = request.correlation_id
         if not execution_id and corr_id:
@@ -110,9 +107,6 @@ class ControlAPI:
                 request_id=request_id,
             )
 
-        # Policy gate — authorize the control action itself (approve/reject),
-        # not the privileged target being approved. Target gating happens
-        # when the privileged op is later attempted.
         policy = get_policy_engine()
         decision = policy.authorize_and_record(
             action=request.action,
@@ -220,7 +214,6 @@ class ControlAPI:
                 correlation_id=corr_id,
                 request_id=request_id,
             )
-        # list recent
         items = [e.as_dict() for e in store.list_executions()][-20:]
         return ControlResponse(
             success=True,
@@ -282,6 +275,24 @@ class ControlAPI:
                     request_id=request_id,
                     correlation_id=corr_id,
                 )
+            if action == "pause":
+                result = adapter.pause(execution_id, context=ctx)
+                return ControlResponse(
+                    success=True,
+                    action=action,
+                    execution=result if isinstance(result, dict) else result,
+                    request_id=request_id,
+                    correlation_id=corr_id,
+                )
+            if action == "resume":
+                result = adapter.resume(execution_id, context=ctx)
+                return ControlResponse(
+                    success=True,
+                    action=action,
+                    execution=result if isinstance(result, dict) else result,
+                    request_id=request_id,
+                    correlation_id=corr_id,
+                )
             if action in ("retry", "re-run"):
                 snap = store.get_execution(execution_id)
                 if snap is None:
@@ -292,7 +303,6 @@ class ControlAPI:
                         error="unknown execution",
                         request_id=request_id,
                     )
-                # create a new execution linked by correlation
                 meta = dict(snap.metadata or {})
                 new_id = f"exec-retry-{uuid.uuid4().hex[:12]}"
                 new_snap = store.create_execution(
