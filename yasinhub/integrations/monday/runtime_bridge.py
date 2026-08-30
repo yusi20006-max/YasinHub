@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 import uuid
-from typing import Any, Dict, Optional, Set
+from typing import Dict, Optional, Set
 
 from ...adapters.agent_runtime import IntegrationContext, get_runtime_adapter
+from ...execution.correlation import get_correlation_store
 from ...observer.execution_store import get_default_store
 from ...observer.models import ExecutionSnapshot
 from .adapter import get_monday_adapter
@@ -40,7 +40,6 @@ class MondayRuntimeBridge:
                 return self._lookup_existing(event.item_id)
             self._processed_corr.add(corr)
 
-        # Validate required metadata (flexible column mapping)
         meta = dict(event.column_values or {})
         project = str(meta.get("project") or meta.get("project_id") or "default")
         repository = str(meta.get("repository") or meta.get("repo") or "")
@@ -76,7 +75,18 @@ class MondayRuntimeBridge:
         with self._lock:
             self._item_to_execution[event.item_id] = execution_id
 
-        # Emit for downstream sync
+        try:
+            get_correlation_store().register(
+                execution_id=execution_id,
+                correlation_id=corr,
+                monday_board_id=event.board_id,
+                monday_item_id=event.item_id,
+                agent_run_id=snap.session_id,
+                github_repo=repository or None,
+            )
+        except Exception:
+            logger.exception("correlation register failed for %s", execution_id)
+
         store.emit_event(
             event_type="integration.monday.task_ready",
             execution_id=execution_id,
@@ -98,33 +108,38 @@ class MondayRuntimeBridge:
     def _lookup_existing(self, item_id: str) -> Optional[ExecutionSnapshot]:
         eid = self._item_to_execution.get(item_id)
         if not eid:
+            rec = get_correlation_store().get_by_monday_item(item_id)
+            if rec:
+                eid = rec.execution_id
+        if not eid:
             return None
         return get_default_store().get_execution(eid)
 
     def cancel_for_item(self, item_id: str, *, actor: str = "monday") -> Optional[ExecutionSnapshot]:
         eid = self._item_to_execution.get(item_id)
         if not eid:
+            rec = get_correlation_store().get_by_monday_item(item_id)
+            eid = rec.execution_id if rec else None
+        if not eid:
             return None
-        ctx = IntegrationContext(request_id=f"req-{uuid.uuid4().hex[:12]}", actor=actor, source="monday")
+        ctx = IntegrationContext(
+            request_id=f"req-{uuid.uuid4().hex[:12]}", actor=actor, source="monday"
+        )
         try:
-            adapter = get_runtime_adapter()
-            result = adapter.cancel(eid, context=ctx)
+            get_runtime_adapter().cancel(eid, context=ctx)
             return get_default_store().get_execution(eid)
         except Exception:
             logger.exception("cancel failed for %s", eid)
             return None
 
     def retry_for_item(self, item_id: str, *, actor: str = "monday") -> Optional[ExecutionSnapshot]:
-        """Re-queue a failed/cancelled execution for the same monday item."""
         existing = self._lookup_existing(item_id)
         if existing and not existing.is_terminal():
             return existing
-        # create a new execution with same correlation
         adapter = get_monday_adapter()
         events = adapter.list_events(item_id=item_id, event_type="task.ready", limit=1)
         if not events:
             return None
-        # allow re-processing by clearing corr lock for this item
         corr = events[0].correlation_id
         with self._lock:
             if corr:
@@ -132,7 +147,6 @@ class MondayRuntimeBridge:
         return self.process_event(events[0])
 
     def drain_pending(self) -> int:
-        """Process any ingested task.ready events not yet bridged."""
         adapter = get_monday_adapter()
         count = 0
         for evt in adapter.list_events(event_type="task.ready", limit=100):
