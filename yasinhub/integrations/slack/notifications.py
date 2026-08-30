@@ -134,7 +134,7 @@ class SlackNotifier:
                         {"thread_ts": result.ts, "channel": channel, "updated_at": time.time()},
                     )
                 except Exception:
-                    logger.debug("slack_thread_persist_failed", exp_info=True)
+                    logger.debug("slack_thread_persist_failed", exc_info=True)
             if not result.ok:
                 self._failures += 1
                 logger.warning(
