@@ -120,6 +120,17 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         ):
             return
 
+        from .slack_routes import handle_slack_routes
+        if handle_slack_routes(
+            clean_path,
+            "POST",
+            self.path,
+            getattr(self, "headers", {}),
+            getattr(self, "rfile", None),
+            self.send_json,
+        ):
+            return
+
         if clean_path in ("/api/events/cleanup", "/api/events/clear"):
             from ..events_engine import cleanup_events
             success = cleanup_events()
@@ -152,6 +163,17 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
         from .observer_routes import handle_execution_observer
         if handle_execution_observer(
+            clean_path,
+            "GET",
+            self.path,
+            getattr(self, "headers", {}),
+            getattr(self, "rfile", None),
+            self.send_json,
+        ):
+            return
+
+        from .slack_routes import handle_slack_routes
+        if handle_slack_routes(
             clean_path,
             "GET",
             self.path,
