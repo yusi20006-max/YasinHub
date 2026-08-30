@@ -6,12 +6,25 @@ from yasinhub.registry import ProjectEntry
 
 
 def test_yhub_launcher_execution():
-    """Verify that the yhub launcher runs correctly as a subprocess."""
+    """Verify that the yhub launcher runs correctly as a subprocess.
+
+    Prefer ./yhub when the executable bit is present. On mounts/git configs that
+    do not preserve +x, invoke via the current Python interpreter so the test
+    still validates the launcher entrypoint without weakening assertions.
+    """
+    import os
+    import stat
+    launcher = "./yhub"
+    mode = os.stat(launcher).st_mode
+    if mode & stat.S_IXUSR:
+        cmd = [launcher, "--help"]
+    else:
+        cmd = [sys.executable, launcher, "--help"]
     result = subprocess.run(
-        ["./yhub", "--help"],
+        cmd,
         capture_output=True,
         text=True,
-        check=True
+        check=True,
     )
     assert "yasinhub" in result.stdout or "usage" in result.stdout
 
