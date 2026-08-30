@@ -13,7 +13,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Set
 
-from ...adapters.agent_runtime import IntegrationContext, get_runtime_adapter
+from ...adapters.agent_runtime import get_runtime_adapter
+from ...execution.control_api import ControlRequest, get_control_api
 from ...observer import get_default_store
 from .events import SlackInboundEvent
 from .permissions import (
@@ -116,32 +117,33 @@ class InteractiveHandler:
         return InteractionResult(ok=True, text=f"Execution `{eid}` — *{status}*", data=data)
 
     def _cancel(self, eid: str, identity: YasinIdentity, event: SlackInboundEvent) -> InteractionResult:
-        ctx = IntegrationContext(
-            request_id=event.request_id or f"slack-ix-{uuid.uuid4().hex[:12]}",
-            actor=identity.yasin_user_id,
-            source="slack-interactive",
-            metadata={"slack_user_id": identity.slack_user_id, "action": "cancel"},
+        resp = get_control_api().handle(
+            ControlRequest(
+                action="cancel",
+                actor=identity.yasin_user_id,
+                source="slack",
+                execution_id=eid,
+                control_event_id=event.request_id or event.trigger_id or f"slack-ix-{uuid.uuid4().hex[:10]}",
+                metadata={"slack_user_id": identity.slack_user_id, "action": "cancel"},
+            )
         )
-        try:
-            result = get_runtime_adapter().cancel(eid, context=ctx)
-        except Exception as exc:
-            return InteractionResult(ok=False, text=f"Cancel failed: {type(exc).__name__}")
-        return InteractionResult(ok=True, text=f"Cancel requested for `{eid}`", data=result if isinstance(result, dict) else None)
+        if not resp.success:
+            return InteractionResult(ok=False, text=f"Cancel failed: {resp.error or 'denied'}")
+        return InteractionResult(ok=True, text=f"Cancel requested for `{eid}`", data=resp.execution)
 
     def _retry(self, eid: str, identity: YasinIdentity, event: SlackInboundEvent) -> InteractionResult:
-        store = get_default_store()
-        existing = store.get_execution(eid)
-        if existing is None:
-            return InteractionResult(ok=False, text=f"Unknown execution `{eid}`")
-        status = getattr(existing, "status", None)
-        if status not in ("failed", "cancelled"):
-            return InteractionResult(ok=False, text=f"Cannot retry `{eid}` in status `{status}`")
-        new_id = f"exec-{uuid.uuid4().hex[:12]}"
-        task_id = getattr(existing, "task_id", "") or ""
-        snap = store.create_execution(
-            execution_id=new_id,
-            task_id=str(task_id),
-            session_id=f"slack-ix-retry-{event.request_id}",
-            metadata={"source": "slack-interactive", "actor": identity.yasin_user_id, "retry_of": eid},
+        resp = get_control_api().handle(
+            ControlRequest(
+                action="retry",
+                actor=identity.yasin_user_id,
+                source="slack",
+                execution_id=eid,
+                control_event_id=event.request_id or event.trigger_id or f"slack-ix-retry-{uuid.uuid4().hex[:10]}",
+                metadata={"slack_user_id": identity.slack_user_id, "action": "retry"},
+            )
         )
-        return InteractionResult(ok=True, text=f"Retry queued as `{new_id}` (from `{eid}`)", data=snap.as_dict())
+        if not resp.success:
+            return InteractionResult(ok=False, text=f"Retry failed: {resp.error or 'denied'}")
+        new_id = (resp.execution or {}).get("execution_id") if isinstance(resp.execution, dict) else None
+        label = f"`{new_id}`" if new_id else "new execution"
+        return InteractionResult(ok=True, text=f"Retry queued as {label} (from `{eid}`)", data=resp.execution)

@@ -2,7 +2,7 @@
 Slack slash command parser and handlers.
 
 Commands enter through the Slack Adapter, are authorized, then invoke
-existing YasinHub control/observer surfaces — never Yasin-Agent directly.
+YasinHub Control API / observer surfaces — never Yasin-Agent directly.
 """
 
 from __future__ import annotations
@@ -13,7 +13,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from ...adapters.agent_runtime import IntegrationContext, get_runtime_adapter
+from ...adapters.agent_runtime import get_runtime_adapter
+from ...execution.control_api import ControlRequest, get_control_api
 from ...observer import get_default_store
 from ...report import build_report
 from .events import SlackInboundEvent
@@ -54,7 +55,6 @@ class CommandResult:
 
 
 def parse_command(command: Optional[str], text: Optional[str]) -> Optional[ParsedCommand]:
-    """Parse slash command name and arguments."""
     name = (command or "").lstrip("/").lower().strip()
     raw = (text or "").strip()
     args: List[str] = []
@@ -105,25 +105,15 @@ def _format_execution(data: Dict[str, Any]) -> str:
 
 
 class CommandDispatcher:
-    """Authorize and execute Slack commands against YasinHub surfaces."""
-
-    def __init__(
-        self,
-        identity_store: Optional[IdentityStore] = None,
-    ) -> None:
+    def __init__(self, identity_store: Optional[IdentityStore] = None) -> None:
         self._identities = identity_store or IdentityStore()
 
     def dispatch(self, event: SlackInboundEvent) -> CommandResult:
         parsed = parse_command(event.command, event.text)
         if parsed is None:
             return CommandResult(ok=False, text="Unable to parse command. Try `/help`.")
-
         if parsed.name not in KNOWN_COMMANDS:
-            return CommandResult(
-                ok=False,
-                text=f"Unknown command `/{parsed.name}`. Try `/help`.",
-            )
-
+            return CommandResult(ok=False, text=f"Unknown command `/{parsed.name}`. Try `/help`.")
         identity = self._identities.resolve(event.slack_user_id)
         try:
             identity = authorize_command(identity, parsed.name)
@@ -133,7 +123,6 @@ class CommandDispatcher:
             if exc.reason == "forbidden":
                 return CommandResult(ok=False, text=f"Not authorized for `/{parsed.name}` (role required).")
             return CommandResult(ok=False, text=f"Authorization failed: {exc.reason}")
-
         handler = getattr(self, f"_cmd_{parsed.name}", None)
         if handler is None:
             return CommandResult(ok=False, text="Command not implemented.")
@@ -198,15 +187,23 @@ class CommandDispatcher:
             execution_id=eid,
             task_id=task,
             session_id=f"slack-{event.request_id}",
-            metadata={
-                "source": "slack",
-                "actor": identity.yasin_user_id,
-                "slack_user_id": identity.slack_user_id,
-            },
+            metadata={"source": "slack", "actor": identity.yasin_user_id, "slack_user_id": identity.slack_user_id},
         )
+        ctrl = get_control_api().handle(
+            ControlRequest(
+                action="start",
+                actor=identity.yasin_user_id,
+                source="slack",
+                execution_id=eid,
+                control_event_id=event.request_id or f"slack-run-{uuid.uuid4().hex[:10]}",
+                metadata={"slack_user_id": identity.slack_user_id, "task": task},
+            )
+        )
+        status = "started" if ctrl.success else "queued"
+        note = "" if ctrl.success else f" (start deferred: {ctrl.error or 'policy'})"
         return CommandResult(
             ok=True,
-            text=f"Queued execution `{snap.execution_id}` for task `{task}`",
+            text=f"Execution `{snap.execution_id}` {status} for task `{task}`{note}",
             data=snap.as_dict() if hasattr(snap, "as_dict") else {"execution_id": eid},
         )
 
@@ -214,44 +211,36 @@ class CommandDispatcher:
         if not parsed.args:
             return CommandResult(ok=False, text="Usage: `/cancel <execution_id>`")
         eid = parsed.args[0]
-        ctx = IntegrationContext(
-            request_id=event.request_id or f"slack-{uuid.uuid4().hex[:12]}",
-            actor=identity.yasin_user_id,
-            source="slack",
-            metadata={"slack_user_id": identity.slack_user_id},
+        resp = get_control_api().handle(
+            ControlRequest(
+                action="cancel",
+                actor=identity.yasin_user_id,
+                source="slack",
+                execution_id=eid,
+                control_event_id=event.request_id or f"slack-cancel-{uuid.uuid4().hex[:10]}",
+                metadata={"slack_user_id": identity.slack_user_id},
+            )
         )
-        adapter = get_runtime_adapter()
-        try:
-            result = adapter.cancel(eid, context=ctx)
-        except Exception as exc:
-            return CommandResult(ok=False, text=f"Cancel failed for `{eid}`: {type(exc).__name__}")
-        return CommandResult(ok=True, text=f"Cancel requested for `{eid}`", data=result if isinstance(result, dict) else None)
+        if not resp.success:
+            return CommandResult(ok=False, text=f"Cancel failed for `{eid}`: {resp.error or 'denied'}")
+        return CommandResult(ok=True, text=f"Cancel requested for `{eid}`", data=resp.execution)
 
     def _cmd_retry(self, parsed: ParsedCommand, identity: YasinIdentity, event: SlackInboundEvent) -> CommandResult:
         if not parsed.args:
             return CommandResult(ok=False, text="Usage: `/retry <execution_id>`")
         eid = parsed.args[0]
-        store = get_default_store()
-        existing = store.get_execution(eid)
-        if existing is None:
-            return CommandResult(ok=False, text=f"Unknown execution `{eid}`")
-        status = getattr(existing, "status", None) or (existing.get("status") if isinstance(existing, dict) else None)
-        if status not in ("failed", "cancelled"):
-            return CommandResult(ok=False, text=f"Cannot retry `{eid}` in status `{status}` (need failed/cancelled)")
-        new_id = f"exec-{uuid.uuid4().hex[:12]}"
-        task_id = getattr(existing, "task_id", None) or (existing.get("task_id") if isinstance(existing, dict) else "")
-        snap = store.create_execution(
-            execution_id=new_id,
-            task_id=str(task_id or ""),
-            session_id=f"slack-retry-{event.request_id}",
-            metadata={
-                "source": "slack",
-                "actor": identity.yasin_user_id,
-                "retry_of": eid,
-            },
+        resp = get_control_api().handle(
+            ControlRequest(
+                action="retry",
+                actor=identity.yasin_user_id,
+                source="slack",
+                execution_id=eid,
+                control_event_id=event.request_id or f"slack-retry-{uuid.uuid4().hex[:10]}",
+                metadata={"slack_user_id": identity.slack_user_id},
+            )
         )
-        return CommandResult(
-            ok=True,
-            text=f"Retry queued as `{new_id}` (from `{eid}`)",
-            data=snap.as_dict() if hasattr(snap, "as_dict") else {"execution_id": new_id},
-        )
+        if not resp.success:
+            return CommandResult(ok=False, text=f"Retry failed for `{eid}`: {resp.error or 'denied'}")
+        new_id = (resp.execution or {}).get("execution_id") if isinstance(resp.execution, dict) else None
+        label = f"`{new_id}`" if new_id else "new execution"
+        return CommandResult(ok=True, text=f"Retry queued as {label} (from `{eid}`)", data=resp.execution)

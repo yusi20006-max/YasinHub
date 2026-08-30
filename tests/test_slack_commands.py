@@ -128,7 +128,7 @@ class TestCommandDispatcher:
             )
         )
         assert result.ok is True
-        assert "Queued" in result.text or "queued" in result.text.lower()
+        assert result.ok and ("queued" in result.text.lower() or "started" in result.text.lower() or "Execution" in result.text)
 
     def test_execution_missing(self):
         d = CommandDispatcher(_store())
