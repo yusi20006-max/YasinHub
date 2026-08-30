@@ -33,6 +33,24 @@ def handle_control_api_routes(
     rfile,
     send_json: Callable[..., Any],
 ) -> bool:
+    # Observability / readiness (#83) — never expose secrets
+    if clean_path in ("/api/control/health", "/v1/control/health") and method == "GET":
+        from ..execution.reconciliation import control_plane_readiness
+
+        send_json(control_plane_readiness())
+        return True
+
+    if clean_path in ("/api/control/reconcile", "/v1/control/reconcile"):
+        if method not in ("GET", "POST"):
+            send_json({"success": False, "error": "method not allowed"}, status=405)
+            return True
+        from ..execution.reconciliation import reconcile
+
+        # HTTP path is always dry-run; privileged recovery uses /api/control
+        report = reconcile(dry_run=True)
+        send_json({"success": True, "report": report.as_dict()})
+        return True
+
     if clean_path in ("/v1/control", "/api/control", "/v1/control/command", "/api/control/command"):
         if method != "POST":
             send_json({"success": False, "error": "method not allowed"}, status=405)
@@ -42,7 +60,6 @@ def handle_control_api_routes(
             send_json({"success": False, "error": "malformed JSON"}, status=400)
             return True
         if not body.get("actor"):
-            # default actor from header if present
             if hasattr(headers, "get"):
                 body["actor"] = headers.get("X-Actor") or body.get("actor") or "hub-user"
             else:
