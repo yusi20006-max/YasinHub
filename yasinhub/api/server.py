@@ -98,6 +98,17 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         if self.handle_control(clean_path):
             return
 
+        from .integration_routes import handle_integration_routes
+        if handle_integration_routes(
+            clean_path,
+            "POST",
+            self.path,
+            getattr(self, "headers", {}),
+            getattr(self, "rfile", None),
+            self.send_json,
+        ):
+            return
+
         from .observer_routes import handle_execution_observer
         if handle_execution_observer(
             clean_path,
@@ -125,8 +136,18 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         parsed_url = urlparse(self.path)
         clean_path = parsed_url.path
 
-        # ابتدا بررسی دستورات کنترلی (با توجه به امکان اجرای curl به عنوان GET)
         if self.handle_control(clean_path):
+            return
+
+        from .integration_routes import handle_integration_routes
+        if handle_integration_routes(
+            clean_path,
+            "GET",
+            self.path,
+            getattr(self, "headers", {}),
+            getattr(self, "rfile", None),
+            self.send_json,
+        ):
             return
 
         from .observer_routes import handle_execution_observer
