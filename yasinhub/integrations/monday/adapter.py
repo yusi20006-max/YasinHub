@@ -55,6 +55,16 @@ class MondayAdapter:
             event.item_id,
             event.correlation_id,
         )
+
+        # Bridge to Execution Runtime for task.ready (Agent remains unaware of monday)
+        if event.event_type == "task.ready":
+            try:
+                from .runtime_bridge import get_runtime_bridge
+
+                get_runtime_bridge().process_event(event)
+            except Exception:
+                logger.exception("runtime bridge failed for %s", event.event_id)
+
         return True
 
     def list_events(
