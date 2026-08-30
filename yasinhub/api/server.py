@@ -48,11 +48,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         if clean_path.startswith("/api/control/"):
             parts = clean_path.split("/")
             if len(parts) < 5:
-                self.send_json({
-                    "success": False,
-                    "error": "invalid control path"
-                })
-                return True
+                return False  # let unified Control API handle /api/control and /api/control/command
 
             service = parts[3]
             action = parts[4]
@@ -94,6 +90,17 @@ class YasinHubHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed_url = urlparse(self.path)
         clean_path = parsed_url.path
+
+        from .control_routes import handle_control_api_routes
+        if handle_control_api_routes(
+            clean_path,
+            "POST",
+            self.path,
+            getattr(self, "headers", {}),
+            getattr(self, "rfile", None),
+            self.send_json,
+        ):
+            return
 
         if self.handle_control(clean_path):
             return
@@ -146,6 +153,17 @@ class YasinHubHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed_url = urlparse(self.path)
         clean_path = parsed_url.path
+
+        from .control_routes import handle_control_api_routes
+        if handle_control_api_routes(
+            clean_path,
+            "GET",
+            self.path,
+            getattr(self, "headers", {}),
+            getattr(self, "rfile", None),
+            self.send_json,
+        ):
+            return
 
         if self.handle_control(clean_path):
             return
@@ -416,7 +434,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 if file_path.suffix == ".html":
                     content_type = "text/html; charset=utf-8"
                 elif file_path.suffix == ".css":
-                    content_type = "text/css; charset=utf-8"
+                    content_type = "application/javascript" if False else "text/css; charset=utf-8"
                 elif file_path.suffix == ".js":
                     content_type = "application/javascript"
                 elif file_path.suffix == ".json":
