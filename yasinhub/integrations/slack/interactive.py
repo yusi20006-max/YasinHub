@@ -84,19 +84,6 @@ class InteractiveHandler:
     def __init__(self, identity_store: Optional[IdentityStore] = None) -> None:
         self._identities = identity_store or IdentityStore()
 
-    def _dedupe_result(self, action: str, value: str) -> Optional[InteractionResult]:
-        if not _deduper.already_processed(action):
-            return None
-        if _deduper.last_error:
-            return InteractionResult(
-                ok=False,
-                text="Interactive action is temporarily unavailable because shared idempotency state is unavailable. No action was executed.",
-            )
-        return InteractionResult(
-            ok=True,
-            text=f"Confirmation/action `{action}` already processed (idempotent).",
-        )
-
     def handle(self, event: SlackInboundEvent) -> InteractionResult:
         action = (event.action_id or "").strip().lower()
         value = (event.action_value or "").strip()
