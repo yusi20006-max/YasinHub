@@ -1,4 +1,4 @@
-"""Structured interface response model (#96)."""
+"""Structured interface response model (#96/#99)."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ class InterfaceResponse:
         if self.confirmation_required and self.confirmation_summary:
             parts.append("")
             parts.append(f"*Confirmation required:* {self.confirmation_summary}")
-            parts.append("Reply `@Yasin confirm <token>` or `@Yasin cancel control`.")
+            parts.append("Reply `@Yasin confirm <token>` or use the buttons below.")
             if self.confirmation_token:
                 parts.append(f"Token: `{self.confirmation_token}`")
         if self.suggested_next_actions:
@@ -57,3 +57,54 @@ class InterfaceResponse:
         if self.uncertainty:
             parts.append(f"\n_Uncertainty: {self.uncertainty}_")
         return "\n".join(parts)
+
+    def to_slack_blocks(self) -> list:
+        """Block Kit payload; value is token only — not authorization."""
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": self.answer or " "},
+            }
+        ]
+        if self.confirmation_required and self.confirmation_token:
+            summary = self.confirmation_summary or "pending control action"
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Confirmation required:* {summary}\nToken: `{self.confirmation_token}`",
+                    },
+                }
+            )
+            blocks.append(
+                {
+                    "type": "actions",
+                    "block_id": f"yasin_confirm_{self.confirmation_token}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Confirm"},
+                            "style": "primary",
+                            "action_id": "yasin_confirm",
+                            "value": self.confirmation_token,
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Cancel"},
+                            "style": "danger",
+                            "action_id": "yasin_cancel",
+                            "value": self.confirmation_token,
+                        },
+                    ],
+                }
+            )
+        elif self.suggested_next_actions:
+            actions = "\n".join(f"• {a}" for a in self.suggested_next_actions[:5])
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*Suggested next actions:*\n{actions}"},
+                }
+            )
+        return blocks

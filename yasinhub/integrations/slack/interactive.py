@@ -1,8 +1,8 @@
 """
-Slack interactive operations: View / Cancel / Retry (#73).
+Slack interactive operations: View / Cancel / Retry (#73) + Yasin confirm (#99).
 
-Every action: verify (done by routes) → identity → authorize → validate resource → execute via YasinHub.
-Idempotent cancel/retry; never trust button payloads as authorization.
+Every action: verify (routes) → identity → authorize → Control API / Interface.
+Never trust button payloads as authorization.
 """
 
 from __future__ import annotations
@@ -45,8 +45,6 @@ class InteractionResult:
 
 @dataclass
 class InteractionDeduper:
-    """Simple in-process idempotency for interactive action trigger_ids / action keys."""
-
     ttl_seconds: float = 300.0
     _seen: Dict[str, float] = field(default_factory=dict)
     _lock_keys: Set[str] = field(default_factory=set)
@@ -72,6 +70,11 @@ class InteractiveHandler:
     def handle(self, event: SlackInboundEvent) -> InteractionResult:
         action = (event.action_id or "").strip().lower()
         value = (event.action_value or "").strip()
+
+        # Phase 4 Block Kit confirmation (#99) — payload alone is not authorization
+        if action in ("yasin_confirm", "yasin_cancel"):
+            return self._handle_yasin_confirmation(event, action, value)
+
         cmd = ACTION_TO_COMMAND.get(action)
         if not cmd:
             return InteractionResult(ok=False, text=f"Unknown action `{action}`")
@@ -98,6 +101,34 @@ class InteractiveHandler:
         if cmd == "retry":
             return self._retry(value, identity, event)
         return InteractionResult(ok=False, text="Unhandled action")
+
+    def _handle_yasin_confirmation(
+        self, event: SlackInboundEvent, action: str, token: str
+    ) -> InteractionResult:
+        try:
+            from ...interface.slack_bridge import handle_slack_confirmation, render_slack_response
+
+            identity = self._identities.resolve(event.slack_user_id)
+            yasin_uid = getattr(identity, "yasin_user_id", None) if identity else None
+            resp = handle_slack_confirmation(
+                action_id=action,
+                token=token,
+                slack_user_id=event.slack_user_id,
+                yasin_user_id=yasin_uid,
+                channel_id=event.channel_id,
+                thread_ts=event.correlation_id,
+            )
+            rendered = render_slack_response(resp)
+            return InteractionResult(
+                ok=resp.success or bool(resp.answer),
+                text=rendered.get("text") or resp.answer or "",
+            )
+        except Exception as exc:
+            logger.warning("yasin_confirm_failed error=%s", type(exc).__name__)
+            return InteractionResult(
+                ok=False,
+                text="Confirmation handling failed; Control Plane remains healthy.",
+            )
 
     def _view(self, eid: str) -> InteractionResult:
         adapter = get_runtime_adapter()
