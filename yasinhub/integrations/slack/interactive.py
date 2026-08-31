@@ -51,12 +51,14 @@ class InteractionDeduper:
     def __init__(self, ttl_seconds: float = 300.0, store=None) -> None:
         self.ttl_seconds = ttl_seconds
         self._store = store
+        self.last_error = False
 
     @property
     def store(self):
         return self._store or get_session_store().store
 
     def already_processed(self, key: str) -> bool:
+        self.last_error = False
         if not key:
             return False
         owner = uuid.uuid4().hex
@@ -68,8 +70,11 @@ class InteractionDeduper:
                 ttl_seconds=self.ttl_seconds,
             )
         except Exception as exc:
+            # Fail closed: if shared idempotency cannot be established, never
+            # execute an interactive action that could be delivered twice.
+            self.last_error = True
             logger.warning("slack_interaction_dedupe_unavailable error=%s", type(exc).__name__)
-            return False
+            return True
 
 
 _deduper = InteractionDeduper()
@@ -79,6 +84,19 @@ class InteractiveHandler:
     def __init__(self, identity_store: Optional[IdentityStore] = None) -> None:
         self._identities = identity_store or IdentityStore()
 
+    def _dedupe_result(self, action: str, value: str) -> Optional[InteractionResult]:
+        if not _deduper.already_processed(action):
+            return None
+        if _deduper.last_error:
+            return InteractionResult(
+                ok=False,
+                text="Interactive action is temporarily unavailable because shared idempotency state is unavailable. No action was executed.",
+            )
+        return InteractionResult(
+            ok=True,
+            text=f"Confirmation/action `{action}` already processed (idempotent).",
+        )
+
     def handle(self, event: SlackInboundEvent) -> InteractionResult:
         action = (event.action_id or "").strip().lower()
         value = (event.action_value or "").strip()
@@ -86,11 +104,9 @@ class InteractiveHandler:
         # Phase 4 Block Kit confirmation (#99/#101) — payload alone is not authorization
         if action in ("yasin_confirm", "yasin_cancel"):
             dedupe_key = event.trigger_id or f"yasin:{action}:{value}:{event.slack_user_id}"
-            if _deduper.already_processed(dedupe_key):
-                return InteractionResult(
-                    ok=True,
-                    text=f"Confirmation action `{action}` already processed (idempotent).",
-                )
+            result = self._dedupe_interaction(dedupe_key, action)
+            if result is not None:
+                return result
             return self._handle_yasin_confirmation(event, action, value)
 
         cmd = ACTION_TO_COMMAND.get(action)
@@ -109,8 +125,9 @@ class InteractiveHandler:
             return InteractionResult(ok=False, text="Missing execution id in action payload.")
 
         dedupe_key = event.trigger_id or f"{action}:{value}:{event.slack_user_id}"
-        if _deduper.already_processed(dedupe_key):
-            return InteractionResult(ok=True, text=f"Action `{action}` for `{value}` already processed (idempotent).")
+        result = self._dedupe_interaction(dedupe_key, action)
+        if result is not None:
+            return result
 
         if cmd == "execution":
             return self._view(value)
@@ -119,6 +136,17 @@ class InteractiveHandler:
         if cmd == "retry":
             return self._retry(value, identity, event)
         return InteractionResult(ok=False, text="Unhandled action")
+
+    @staticmethod
+    def _dedupe_interaction(key: str, action: str) -> Optional[InteractionResult]:
+        if not _deduper.already_processed(key):
+            return None
+        if _deduper.last_error:
+            return InteractionResult(
+                ok=False,
+                text="Interactive action is temporarily unavailable because shared idempotency state is unavailable. No action was executed.",
+            )
+        return InteractionResult(ok=True, text=f"Action `{action}` already processed (idempotent).")
 
     def _handle_yasin_confirmation(
         self, event: SlackInboundEvent, action: str, token: str
