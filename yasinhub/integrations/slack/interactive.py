@@ -68,8 +68,6 @@ class InteractionDeduper:
                 ttl_seconds=self.ttl_seconds,
             )
         except Exception as exc:
-            # Deduplication must never become a new availability dependency.
-            # Control API idempotency remains authoritative for mutations.
             logger.warning("slack_interaction_dedupe_unavailable error=%s", type(exc).__name__)
             return False
 
@@ -85,8 +83,14 @@ class InteractiveHandler:
         action = (event.action_id or "").strip().lower()
         value = (event.action_value or "").strip()
 
-        # Phase 4 Block Kit confirmation (#99) — payload alone is not authorization
+        # Phase 4 Block Kit confirmation (#99/#101) — payload alone is not authorization
         if action in ("yasin_confirm", "yasin_cancel"):
+            dedupe_key = event.trigger_id or f"yasin:{action}:{value}:{event.slack_user_id}"
+            if _deduper.already_processed(dedupe_key):
+                return InteractionResult(
+                    ok=True,
+                    text=f"Confirmation action `{action}` already processed (idempotent).",
+                )
             return self._handle_yasin_confirmation(event, action, value)
 
         cmd = ACTION_TO_COMMAND.get(action)
