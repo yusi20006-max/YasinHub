@@ -245,7 +245,6 @@ export async function controlExecution(executionId, action, opts) {
     encodeURIComponent(executionId) +
     "/" +
     encodeURIComponent(action);
-  // Actor is optional display hint only; backend resolves authenticated identity.
   const body = { request_id: requestId };
   if (opts && opts.actor) body.actor = String(opts.actor);
   const result = await postJSON(path, body);
@@ -384,4 +383,67 @@ export async function controlCancelViaAPI(executionId, opts) {
     actor: opts && opts.actor,
     correlation_id: opts && opts.correlation_id,
   });
+}
+
+/**
+ * Yasin Interface conversational chat (PWA surface).
+ * Session continuity via in-memory client_session_id only — not an auth identity.
+ * @param {string} text
+ * @param {{actor?: string}} [opts]
+ * @returns {Promise<ApiResult>}
+ */
+let _pwaSessionId = null;
+
+export async function chatYasin(text, opts) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return { ok: false, offline: true, error: false, status: null, data: null, message: "offline" };
+  }
+  if (!_pwaSessionId) {
+    _pwaSessionId =
+      (typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : "pwa-" + Date.now().toString(36) + Math.random().toString(36).slice(2));
+  }
+  const body = {
+    text: String(text || "").trim(),
+    client_session_id: _pwaSessionId,
+    actor: (opts && opts.actor) || "pwa-user",
+  };
+  try {
+    const res = await fetch(API_BASE + "/api/interface/chat", {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok) {
+      return {
+        ok: false,
+        offline: false,
+        error: true,
+        status: res.status,
+        data,
+        message: (data && (data.error || data.answer)) || res.statusText || "request failed",
+      };
+    }
+    if (data && data.session_id) {
+      _pwaSessionId = data.session_id;
+    }
+    return { ok: true, offline: false, error: false, status: res.status, data, message: null };
+  } catch (e) {
+    return {
+      ok: false,
+      offline: false,
+      error: true,
+      status: null,
+      data: null,
+      message: e && e.message ? String(e.message) : "network error",
+    };
+  }
 }
