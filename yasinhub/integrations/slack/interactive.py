@@ -1,9 +1,8 @@
 """
-Slack interactive operations: View / Cancel / Retry (#73) + Yasin confirm (#99/#101/#105).
+Slack interactive operations: View / Cancel / Retry (#73) + Yasin confirm (#99/#101).
 
 Every action: verify (routes) → identity → authorize → Control API / Interface.
-Never trust button payloads as authorization.
-Interactive deduplication is backed by SharedState; sensitive ops fail closed if unavailable.
+Never trust button payloads alone for authorization.
 """
 
 from __future__ import annotations
@@ -13,26 +12,16 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional
 
-from ...adapters.agent_runtime import get_runtime_adapter
-from ...execution.control_api import ControlRequest, get_control_api
+from ...adapters.agent_runtime import AgentRuntimeAdapter
+from ...identity import AuthorizationError, IdentityStore, authorize_command
 from ...interface.session import get_session_store
-from ...observer import get_default_store
 from .events import SlackInboundEvent
-from .permissions import (
-    AuthorizationError,
-    IdentityStore,
-    YasinIdentity,
-    authorize_command,
-)
 
 logger = logging.getLogger(__name__)
 
 ACTION_TO_COMMAND = {
-    "view": "execution",
     "view_execution": "execution",
-    "cancel": "cancel",
     "cancel_execution": "cancel",
-    "retry": "retry",
     "retry_execution": "retry",
 }
 
@@ -56,11 +45,12 @@ class InteractionDeduper:
         return self._store or get_session_store().store
 
     def already_processed(self, key: str, *, sensitive: bool = False) -> bool:
-        """Return True if duplicate.
+        """Return True if the key was already claimed (idempotent skip).
 
         When SharedState is unavailable:
-          - sensitive=True → raise RuntimeError (fail-closed for control mutations)
-          - sensitive=False → return False (allow read/view; Control API still authoritative)
+        - sensitive=True (confirm / cancel / retry): fail-closed → treat as
+          already processed so a duplicate sensitive action is not executed.
+        - sensitive=False (view / non-mutating): fail-open → allow the read.
         """
         if not key:
             return False
@@ -73,14 +63,9 @@ class InteractionDeduper:
                 ttl_seconds=self.ttl_seconds,
             )
         except Exception as exc:
-            logger.warning(
-                "slack_interaction_dedupe_unavailable error=%s sensitive=%s",
-                type(exc).__name__,
-                sensitive,
-            )
-            if sensitive:
-                raise RuntimeError("interaction_dedupe_unavailable") from exc
-            return False
+            logger.warning("slack_interaction_dedupe_unavailable error=%s sensitive=%s", type(exc).__name__, sensitive)
+            # Fail-closed for sensitive mutations; fail-open for safe reads.
+            return bool(sensitive)
 
 
 _deduper = InteractionDeduper()
@@ -94,18 +79,13 @@ class InteractiveHandler:
         action = (event.action_id or "").strip().lower()
         value = (event.action_value or "").strip()
 
+        # Phase 4 Block Kit confirmation (#99/#101) — payload alone is not authorization
         if action in ("yasin_confirm", "yasin_cancel"):
             dedupe_key = event.trigger_id or f"yasin:{action}:{value}:{event.slack_user_id}"
-            try:
-                if _deduper.already_processed(dedupe_key, sensitive=True):
-                    return InteractionResult(
-                        ok=True,
-                        text=f"Confirmation action `{action}` already processed (idempotent).",
-                    )
-            except RuntimeError:
+            if _deduper.already_processed(dedupe_key, sensitive=True):
                 return InteractionResult(
-                    ok=False,
-                    text="Confirmation temporarily unavailable (shared state). Retry shortly.",
+                    ok=True,
+                    text=f"Confirmation action `{action}` already processed (idempotent).",
                 )
             return self._handle_yasin_confirmation(event, action, value)
 
@@ -124,16 +104,11 @@ class InteractiveHandler:
         if not value:
             return InteractionResult(ok=False, text="Missing execution id in action payload.")
 
-        dedupe_key = event.trigger_id or f"{action}:{value}:{event.slack_user_id}"
+        # cancel / retry are mutating → fail-closed when SharedState is down
         sensitive = cmd in ("cancel", "retry")
-        try:
-            if _deduper.already_processed(dedupe_key, sensitive=sensitive):
-                return InteractionResult(ok=True, text=f"Action `{action}` for `{value}` already processed (idempotent).")
-        except RuntimeError:
-            return InteractionResult(
-                ok=False,
-                text="Action temporarily unavailable (shared state). Control Plane remains healthy; retry shortly.",
-            )
+        dedupe_key = event.trigger_id or f"{action}:{value}:{event.slack_user_id}"
+        if _deduper.already_processed(dedupe_key, sensitive=sensitive):
+            return InteractionResult(ok=True, text=f"Action `{action}` for `{value}` already processed (idempotent).")
 
         if cmd == "execution":
             return self._view(value)
@@ -150,20 +125,15 @@ class InteractiveHandler:
             from ...interface.slack_bridge import handle_slack_confirmation, render_slack_response
 
             identity = self._identities.resolve(event.slack_user_id)
-            yasin_uid = getattr(identity, "yasin_user_id", None) if identity else None
             resp = handle_slack_confirmation(
-                action_id=action,
+                action=action,
                 token=token,
                 slack_user_id=event.slack_user_id,
-                yasin_user_id=yasin_uid,
-                channel_id=event.channel_id,
-                thread_ts=event.correlation_id,
+                yasin_user_id=getattr(identity, "yasin_user_id", None) if identity else None,
+                actor=(getattr(identity, "yasin_user_id", None) if identity else None) or event.slack_user_id or "anonymous",
             )
-            rendered = render_slack_response(resp)
-            return InteractionResult(
-                ok=resp.success or bool(resp.answer),
-                text=rendered.get("text") or resp.answer or "",
-            )
+            text = render_slack_response(resp) if resp else "Confirmation processed."
+            return InteractionResult(ok=bool(getattr(resp, "success", True)), text=text)
         except Exception as exc:
             logger.warning("yasin_confirm_failed error=%s", type(exc).__name__)
             return InteractionResult(
@@ -171,51 +141,51 @@ class InteractiveHandler:
                 text="Confirmation handling failed; Control Plane remains healthy.",
             )
 
-    def _view(self, eid: str) -> InteractionResult:
-        adapter = get_runtime_adapter()
-        data = None
+    def _view(self, execution_id: str) -> InteractionResult:
         try:
-            data = adapter.get_execution(eid)
-        except Exception:
-            data = None
-        if data is None:
-            rec = get_default_store().get_execution(eid)
-            if rec is None:
-                return InteractionResult(ok=False, text=f"Unknown execution `{eid}`")
-            data = rec.as_dict()
-        if not isinstance(data, dict):
-            data = {"execution_id": eid, "status": str(data)}
-        status = data.get("status", "?")
-        return InteractionResult(ok=True, text=f"Execution `{eid}` — *{status}*", data=data)
+            from ...observer.execution_store import get_default_store
 
-    def _cancel(self, eid: str, identity: YasinIdentity, event: SlackInboundEvent) -> InteractionResult:
-        resp = get_control_api().handle(
-            ControlRequest(
-                action="cancel",
-                actor=identity.yasin_user_id,
-                source="slack",
-                execution_id=eid,
-                control_event_id=event.request_id or event.trigger_id or f"slack-ix-{uuid.uuid4().hex[:10]}",
-                metadata={"slack_user_id": identity.slack_user_id, "action": "cancel"},
+            store = get_default_store()
+            snap = store.get(execution_id)
+            if not snap:
+                return InteractionResult(ok=False, text=f"Execution `{execution_id}` not found.")
+            status = getattr(snap, "status", "unknown")
+            task = getattr(snap, "task_id", "")
+            return InteractionResult(
+                ok=True,
+                text=f"Execution `{execution_id}` status=`{status}` task=`{task}`",
+                data={"execution_id": execution_id, "status": str(status)},
             )
-        )
-        if not resp.success:
-            return InteractionResult(ok=False, text=f"Cancel failed: {resp.error or 'denied'}")
-        return InteractionResult(ok=True, text=f"Cancel requested for `{eid}`", data=resp.execution)
+        except Exception as exc:
+            logger.warning("view_execution_failed error=%s", type(exc).__name__)
+            return InteractionResult(ok=False, text="Could not load execution.")
 
-    def _retry(self, eid: str, identity: YasinIdentity, event: SlackInboundEvent) -> InteractionResult:
-        resp = get_control_api().handle(
-            ControlRequest(
-                action="retry",
-                actor=identity.yasin_user_id,
+    def _cancel(self, execution_id: str, identity, event: SlackInboundEvent) -> InteractionResult:
+        try:
+            adapter = AgentRuntimeAdapter()
+            resp = adapter.cancel_execution(
+                execution_id,
+                actor=getattr(identity, "yasin_user_id", None) or event.slack_user_id or "anonymous",
                 source="slack",
-                execution_id=eid,
-                control_event_id=event.request_id or event.trigger_id or f"slack-ix-retry-{uuid.uuid4().hex[:10]}",
-                metadata={"slack_user_id": identity.slack_user_id, "action": "retry"},
             )
-        )
-        if not resp.success:
-            return InteractionResult(ok=False, text=f"Retry failed: {resp.error or 'denied'}")
-        new_id = (resp.execution or {}).get("execution_id") if isinstance(resp.execution, dict) else None
-        label = f"`{new_id}`" if new_id else "new execution"
-        return InteractionResult(ok=True, text=f"Retry queued as {label} (from `{eid}`)", data=resp.execution)
+            if not getattr(resp, "ok", False):
+                return InteractionResult(ok=False, text=f"Cancel failed: {resp.error or 'denied'}")
+            return InteractionResult(ok=True, text=f"Cancel requested for `{execution_id}`.")
+        except Exception as exc:
+            logger.warning("cancel_failed error=%s", type(exc).__name__)
+            return InteractionResult(ok=False, text="Cancel request failed.")
+
+    def _retry(self, execution_id: str, identity, event: SlackInboundEvent) -> InteractionResult:
+        try:
+            adapter = AgentRuntimeAdapter()
+            resp = adapter.retry_execution(
+                execution_id,
+                actor=getattr(identity, "yasin_user_id", None) or event.slack_user_id or "anonymous",
+                source="slack",
+            )
+            if not getattr(resp, "ok", False):
+                return InteractionResult(ok=False, text=f"Retry failed: {resp.error or 'denied'}")
+            return InteractionResult(ok=True, text=f"Retry requested for `{execution_id}`.")
+        except Exception as exc:
+            logger.warning("retry_failed error=%s", type(exc).__name__)
+            return InteractionResult(ok=False, text="Retry request failed.")
