@@ -1,9 +1,13 @@
-"""Yasin Interface — Phase 4 natural-language control surface (#96).
+"""Yasin Interface — Phase 4 natural-language control surface (#96/#99)."""
 
-Channel-neutral conversational layer above the Control Plane.
-Never bypasses policy, audit, or Control API.
-"""
-
+from .adapters import (
+    BaseChannelAdapter,
+    ChannelMessage,
+    CLIChannelAdapter,
+    PWAChannelAdapter,
+    SlackChannelAdapter,
+    get_channel_adapter,
+)
 from .engine import YasinInterface, get_yasin_interface
 from .intents import Intent, IntentKind
 from .response import InterfaceResponse
@@ -18,4 +22,10 @@ __all__ = [
     "Session",
     "SessionStore",
     "get_session_store",
+    "ChannelMessage",
+    "BaseChannelAdapter",
+    "SlackChannelAdapter",
+    "CLIChannelAdapter",
+    "PWAChannelAdapter",
+    "get_channel_adapter",
 ]

@@ -1,66 +1,55 @@
 # Yasin Interface (Phase 4)
 
-**Status:** Initial implementation (#96)
-**Baseline:** Control Plane on `main` including shared state (#93)
+**Status:** Phase 4 production path (#96 + #99)
 
 ## Architecture
 
 ```text
-Slack / future PWA / CLI
+ChannelAdapter (Slack / CLI / PWA)
           ↓
-   Yasin Interface
+   Yasin Interface Engine
   (Session · Intent · Context)
           ↓
-       YasinHub
-   ┌──────┼──────┐
-Memory  Runtime  Integrations
-   ↓       ↓          ↓
-Core   Agent      GitHub/monday
-           ↓
-        Yasin-AI
+       YasinHub Control API
 ```
 
-Control path:
+## Production AI Provider
+
+| Env | Purpose |
+|-----|---------|
+| `YASIN_AI_PROVIDER` | `fake` \| `null` \| `openai` \| `http` |
+| `YASIN_AI_API_KEY` | API key (never commit) |
+| `YASIN_AI_BASE_URL` | OpenAI-compatible base URL |
+| `YASIN_AI_MODEL` | Model name |
+| `YASIN_AI_TIMEOUT` | Seconds (default 15) |
+
+Missing credentials → `NullAIProvider` (system stays healthy).
+
+## Slack confirmation UX
 
 ```text
-NL → Intent(CONTROL_REQUEST) → Confirmation → Control API → Policy → Audit → Idempotency → Runtime
+@Yasin retry execution exec_1842
+        ↓
+control proposal + Block Kit [Confirm] [Cancel]
+        ↓
+identity + shared pending token validation
+        ↓
+Control API
 ```
 
-**Never:** Slack → Yasin-Agent, LLM → shell/code/HTTP, free-form model output as executable ops.
+Button value is only the confirmation token. Authorization comes from identity + policy.
 
-## Implemented
+## Channel adapters
 
-| Capability | Status |
-|------------|--------|
-| `@Yasin` detection & normalize | implemented |
-| Structured intents | implemented |
-| Session + shared-state continuity | implemented |
-| Context: execution, correlation, reconciliation | implemented |
-| Fake / null AI provider | implemented |
-| Yasin-Core memory adapter boundary | implemented (optional / null by default) |
-| Control via Control API + confirmation | implemented |
-| Prompt-injection treated as data | implemented |
-
-## Intent kinds
-
-`READ_STATUS`, `READ_EXECUTION`, `READ_GITHUB`, `READ_MONDAY`, `INVESTIGATE_FAILURE`, `SUMMARIZE`, `CONTROL_REQUEST`, `CONFIRM_CONTROL`, `CANCEL_CONTROL`, `UNKNOWN`
-
-## Confirmation
-
-State-changing NL control requires explicit `@Yasin confirm <token>`.
-Plain “yes” / “do it” is **not** authorization.
-
-## Planned / future
-
-- Rich Slack Block Kit confirm buttons bound to tokens
-- Deeper GitHub API body retrieval (still data-only)
-- Production LLM provider behind `AIProvider` (not in Slack routes)
-- Natural-language multi-turn investigation agents via Runtime only
-- PWA / CLI channel adapters using the same engine
+```python
+from yasinhub.interface import get_channel_adapter, ChannelMessage
+adapter = get_channel_adapter("cli")
+resp = adapter.handle(ChannelMessage(text="status of execution exec_1", channel="cli", source="cli", actor="ops"))
+```
 
 ## Security
 
 - External text is untrusted
-- No display-name auth
 - Control API remains authoritative
-- Secrets redacted from context and answers
+- Confirmation one-time via SharedState
+- Secrets redacted
