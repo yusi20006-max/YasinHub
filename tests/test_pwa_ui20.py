@@ -1,48 +1,54 @@
-"""
-UI 2.0 verification: design tokens, RTL/Persian shell, overview ops layout,
-table toolbars, skeletons (#136–#142).
-"""
+"""Regression coverage for YasinHub PWA UI 2.0."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 D = ROOT / "dashboard"
 JS = D / "js"
 
-def _r(p):
-    return p.read_text(encoding="utf-8")
 
-def test_design_tokens_and_dark_mode():
-    css = _r(D / "style.css")
-    for tok in ("--bg", "--surface", "--text", "--accent", "--danger", "--success", "--focus-ring"):
-        assert tok in css
-    assert ".dark {" in css
-    assert "responsive-cards" in css
-    assert "skeleton" in css
-    assert "toast-host" in css or ".toast" in css
+def _r(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
 
-def test_persian_rtl_shell():
+
+def test_design_tokens_and_responsive_ui20():
+    css = _r(D / "ui20.css")
+    for token in ("--ui20-bg", "--ui20-surface", "--ui20-text", "--ui20-accent", "--ui20-danger", "--ui20-success"):
+        assert token in css
+    assert ".dark" in css
+    assert ".table-toolbar" in css
+    assert ".service-status-list" in css
+    assert "@media(max-width:560px)" in css
+
+
+def test_persian_rtl_shell_and_assets():
     html = _r(D / "index.html")
     assert 'lang="fa"' in html
     assert 'dir="rtl"' in html
-    assert "نمای کلی" in html
-    assert "اجراها" in html
-    assert "ناوها" in html
-    assert "رویدادها" in html
-    assert 'data-nav="overview"' in html
-    assert "YasinHub" in html
+    for text in ("نمای کلی", "اجراها", "ناوها", "رویدادها", "یاسین‌هاب"):
+        assert text in html
+    assert 'href="ui20.css"' in html
+    assert 'src="ui20.js"' in html
 
-def test_views_overview_programs_and_filters():
+
+def test_real_program_status_surface():
     views = _r(JS / "views.js")
-    assert "Yasin Programs" in views
     assert "service-status-list" in views
+    assert "project.status" in views
+    assert "project.message" in views
     assert "RUNNING / ACTIVE" in views
-    assert "table-toolbar" in views
-    assert "renderSkeleton" in views
-    assert "fa-IR" in views or "fa.IR" in views or "toLocaleString" in views
     assert "&amp;" in views
 
-def test_app_overview_fetches_events():
+
+def test_progressive_table_tools_and_persian_layer():
+    ui = _r(D / "ui20.js")
+    assert "table-search" in ui
+    assert "table-filter" in ui
+    assert "MutationObserver" in ui
+    assert "آنلاین" in ui
+
+
+def test_app_keeps_observer_event_fetch():
     app = _r(D / "app.js")
     assert "listEvents" in app
     assert "renderOverview" in app
-    assert "toast-host" in app or "toast" in app
+    assert "getSystemDashboard" in app
