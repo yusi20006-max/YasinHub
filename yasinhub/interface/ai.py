@@ -1,13 +1,13 @@
-"""Yasin-AI capability abstraction (#96/#99). Provider-agnostic.
+"""Yasin-AI capability abstraction (#96/#99/#101). Provider-agnostic.
 
 Configuration (env):
   YASIN_AI_PROVIDER = fake | null | openai | http
   YASIN_AI_API_KEY  = secret (never logged)
-  YASIN_AI_BASE_URL = e.g. https://api.openai.com/v1
-  YASIN_AI_MODEL    = model name
-  YASIN_AI_TIMEOUT  = seconds (default 15)
+  YASIN_AI_BASE_URL = http(s) URL only
+  YASIN_AI_MODEL    = model name (no whitespace)
+  YASIN_AI_TIMEOUT  = 1–120 seconds (default 15)
 
-Missing credentials → NullAIProvider (system stays healthy).
+Missing credentials / invalid config → NullAIProvider (system stays healthy).
 """
 
 from __future__ import annotations
@@ -22,6 +22,12 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Protocol
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_PROVIDERS = frozenset(
+    {"fake", "test", "null", "none", "off", "disabled", "openai", "http", "openai_compatible"}
+)
+MAX_TIMEOUT = 120.0
+MIN_TIMEOUT = 1.0
 
 
 @dataclass
@@ -49,6 +55,49 @@ def _redact_secrets(text: str) -> str:
     for p in patterns:
         out = re.sub(p, "[REDACTED]", out)
     return out
+
+
+def validate_ai_config(
+    *,
+    provider: str,
+    api_key: str = "",
+    base_url: str = "",
+    model: str = "",
+    timeout: float = 15.0,
+) -> Dict[str, Any]:
+    """Validate provider configuration. Never includes secrets in the result."""
+    name = (provider or "null").strip().lower()
+    issues = []
+    if name and name not in ALLOWED_PROVIDERS:
+        if not re.match(r"^[a-z][a-z0-9_-]{0,32}$", name):
+            issues.append("invalid_provider_name")
+    if name in ("openai", "http", "openai_compatible") or (name and name not in ALLOWED_PROVIDERS):
+        if not api_key:
+            issues.append("missing_api_key")
+        bu = (base_url or "").strip()
+        if bu and not (bu.startswith("https://") or bu.startswith("http://")):
+            issues.append("invalid_base_url")
+        if not (model or "").strip():
+            issues.append("missing_model")
+        elif len(model) > 128 or re.search(r"[\s\n]", model):
+            issues.append("invalid_model")
+    try:
+        to = float(timeout)
+        if to < MIN_TIMEOUT or to > MAX_TIMEOUT:
+            issues.append("timeout_out_of_range")
+    except (TypeError, ValueError):
+        issues.append("invalid_timeout")
+    hard = [i for i in issues if i != "missing_api_key"]
+    return {
+        "ok": len(hard) == 0,
+        "provider": name or "null",
+        "has_api_key": bool(api_key),
+        "base_url_set": bool((base_url or "").strip()),
+        "model": (model or "")[:64] if model else "",
+        "timeout": timeout if isinstance(timeout, (int, float)) else None,
+        "issues": issues,
+        "degrades_to_null_on_missing_key": True,
+    }
 
 
 class FakeAIProvider:
@@ -168,7 +217,7 @@ class HttpAIProvider:
                 )
             return AICompletion(text=text, confidence=0.65, provider=self._name)
         except urllib.error.HTTPError as exc:
-            logger.warning("ai_http_error status=%s provider=%s", exc.code, self._name)
+            logger.warning("ai_http_error status=%s provider=%s", exp.code if False else exc.code, self._name)
             return AICompletion(
                 text="AI provider returned an error. YasinHub remains healthy.",
                 confidence=0.0,
@@ -209,10 +258,6 @@ def create_ai_provider_from_env() -> AIProvider:
         return NullAIProvider()
 
     api_key = (os.environ.get("YASIN_AI_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
-    if not api_key:
-        logger.info("ai_provider_selected=%s but no API key — using null", name)
-        return NullAIProvider()
-
     base_url = (
         os.environ.get("YASIN_AI_BASE_URL")
         or os.environ.get("OPENAI_BASE_URL")
@@ -224,22 +269,42 @@ def create_ai_provider_from_env() -> AIProvider:
     except ValueError:
         timeout = 15.0
 
-    if name in ("openai", "http", "openai_compatible"):
-        return HttpAIProvider(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            timeout=timeout,
-            name=name if name != "openai_compatible" else "openai",
+    cfg = validate_ai_config(
+        provider=name, api_key=api_key, base_url=base_url, model=model, timeout=timeout
+    )
+    if cfg["issues"]:
+        logger.info(
+            "ai_config_issues provider=%s issues=%s has_key=%s",
+            name,
+            ",".join(cfg["issues"]),
+            cfg["has_api_key"],
         )
 
-    logger.info("ai_provider_unknown name=%s — using openai-compatible HTTP", name)
+    if not api_key:
+        logger.info("ai_provider_selected=%s but no API key — using null", name)
+        return NullAIProvider()
+    if "invalid_base_url" in cfg["issues"]:
+        logger.warning("ai_invalid_base_url provider=%s — using null", name)
+        return NullAIProvider()
+    if "invalid_model" in cfg["issues"] or "missing_model" in cfg["issues"]:
+        logger.warning("ai_invalid_model provider=%s — using null", name)
+        return NullAIProvider()
+    if "timeout_out_of_range" in cfg["issues"] or "invalid_timeout" in cfg["issues"]:
+        timeout = 15.0
+    if "invalid_provider_name" in cfg["issues"]:
+        logger.warning("ai_invalid_provider_name — using null")
+        return NullAIProvider()
+
+    provider_name = name if name != "openai_compatible" else "openai"
+    if name not in ("openai", "http", "openai_compatible"):
+        logger.info("ai_provider_unknown name=%s — using openai-compatible HTTP", name)
+
     return HttpAIProvider(
         api_key=api_key,
         base_url=base_url,
         model=model,
         timeout=timeout,
-        name=name,
+        name=provider_name if name in ("openai", "http", "openai_compatible") else name,
     )
 
 
