@@ -221,6 +221,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 "published_posts": 0,
                 "pending_posts": 0
             }
+            projects = []
 
             for r in reports:
                 if r.health_state == "RUNNING":
@@ -237,9 +238,21 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                     summary["published_posts"] += r.db_stats.get("published_posts", 0)
                     summary["pending_posts"] += r.db_stats.get("pending_posts", 0)
 
+                projects.append({
+                    "name": r.name,
+                    "status": r.health_state,
+                    "last_run": r.last_run,
+                    "success": r.last_success,
+                    "message": r.last_message,
+                    "metrics": r.metrics,
+                    "db_stats": r.db_stats,
+                    "health": r.health,
+                })
+
             self.send_json({
                 "ecosystem": "Yasin",
-                "dashboard": summary
+                "dashboard": summary,
+                "projects": projects
             })
             return
 
