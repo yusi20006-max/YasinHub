@@ -1,10 +1,9 @@
 """
-Slack interactive operations: View / Cancel / Retry (#73) + Yasin confirm (#99/#101).
+Slack interactive operations: View / Cancel / Retry (#73) + Yasin confirm (#99/#101/#105).
 
 Every action: verify (routes) → identity → authorize → Control API / Interface.
 Never trust button payloads as authorization.
-Interactive deduplication is backed by the shared state abstraction so workers
-share the same duplicate-control window.
+Interactive deduplication is backed by SharedState; sensitive ops fail closed if unavailable.
 """
 
 from __future__ import annotations
@@ -56,7 +55,13 @@ class InteractionDeduper:
     def store(self):
         return self._store or get_session_store().store
 
-    def already_processed(self, key: str) -> bool:
+    def already_processed(self, key: str, *, sensitive: bool = False) -> bool:
+        """Return True if duplicate.
+
+        When SharedState is unavailable:
+          - sensitive=True → raise RuntimeError (fail-closed for control mutations)
+          - sensitive=False → return False (allow read/view; Control API still authoritative)
+        """
         if not key:
             return False
         owner = uuid.uuid4().hex
@@ -68,7 +73,13 @@ class InteractionDeduper:
                 ttl_seconds=self.ttl_seconds,
             )
         except Exception as exc:
-            logger.warning("slack_interaction_dedupe_unavailable error=%s", type(exc).__name__)
+            logger.warning(
+                "slack_interaction_dedupe_unavailable error=%s sensitive=%s",
+                type(exc).__name__,
+                sensitive,
+            )
+            if sensitive:
+                raise RuntimeError("interaction_dedupe_unavailable") from exc
             return False
 
 
@@ -83,13 +94,18 @@ class InteractiveHandler:
         action = (event.action_id or "").strip().lower()
         value = (event.action_value or "").strip()
 
-        # Phase 4 Block Kit confirmation (#99/#101) — payload alone is not authorization
         if action in ("yasin_confirm", "yasin_cancel"):
             dedupe_key = event.trigger_id or f"yasin:{action}:{value}:{event.slack_user_id}"
-            if _deduper.already_processed(dedupe_key):
+            try:
+                if _deduper.already_processed(dedupe_key, sensitive=True):
+                    return InteractionResult(
+                        ok=True,
+                        text=f"Confirmation action `{action}` already processed (idempotent).",
+                    )
+            except RuntimeError:
                 return InteractionResult(
-                    ok=True,
-                    text=f"Confirmation action `{action}` already processed (idempotent).",
+                    ok=False,
+                    text="Confirmation temporarily unavailable (shared state). Retry shortly.",
                 )
             return self._handle_yasin_confirmation(event, action, value)
 
@@ -109,8 +125,15 @@ class InteractiveHandler:
             return InteractionResult(ok=False, text="Missing execution id in action payload.")
 
         dedupe_key = event.trigger_id or f"{action}:{value}:{event.slack_user_id}"
-        if _deduper.already_processed(dedupe_key):
-            return InteractionResult(ok=True, text=f"Action `{action}` for `{value}` already processed (idempotent).")
+        sensitive = cmd in ("cancel", "retry")
+        try:
+            if _deduper.already_processed(dedupe_key, sensitive=sensitive):
+                return InteractionResult(ok=True, text=f"Action `{action}` for `{value}` already processed (idempotent).")
+        except RuntimeError:
+            return InteractionResult(
+                ok=False,
+                text="Action temporarily unavailable (shared state). Control Plane remains healthy; retry shortly.",
+            )
 
         if cmd == "execution":
             return self._view(value)
