@@ -6,12 +6,12 @@
   <meta name="theme-color" content="#0f172a">
   <title>داشبورد یاسین‌هاب · YasinHub</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="ui20.css">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon-192.png" type="image/png">
 </head>
 <body>
   <a class="skip-link" href="#main">پرش به محتوا</a>
-
   <header class="app-header">
     <div class="brand">
       <button type="button" id="nav-toggle" class="nav-toggle" aria-label="باز و بسته کردن منو" aria-expanded="false">☰</button>
@@ -25,7 +25,6 @@
       <button type="button" id="theme-toggle" class="btn-ghost" aria-label="تغییر پوسته" aria-pressed="false">پوسته</button>
     </div>
   </header>
-
   <div class="app-shell">
     <nav id="sidebar" class="sidebar" aria-label="ناوبری اصلی">
       <ul>
@@ -36,21 +35,17 @@
       </ul>
       <p class="nav-footnote">سطح مشاهده و کنترل · بدون دسترسی به شِل یا فایل‌سیستم</p>
     </nav>
-
     <main id="main" class="main">
       <div class="page-heading">
         <h2 id="page-title">نمای کلی</h2>
         <button type="button" id="refresh-btn" class="btn-secondary">به‌روزرسانی</button>
       </div>
-      <div id="content" class="content" aria-live="polite">
-        <div class="state state-loading">در حال بارگذاری…</div>
-      </div>
+      <div id="content" class="content" aria-live="polite"><div class="state state-loading">در حال بارگذاری…</div></div>
     </main>
   </div>
-
   <div id="toast-host" class="toast-host" aria-live="polite" aria-relevant="additions"></div>
-
   <script type="module" src="app.js"></script>
   <script type="module" src="chat.js"></script>
+  <script type="module" src="ui20.js"></script>
 </body>
 </html>
