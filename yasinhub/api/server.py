@@ -1,4 +1,6 @@
-"""YasinHub lightweight API server"""
+"""
+YasinHub lightweight API server
+"""
 
 from __future__ import annotations
 
@@ -25,10 +27,20 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         ).encode("utf-8")
 
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Content-Length", str(len(payload)))
+        self.send_header(
+            "Content-Type",
+            "application/json; charset=utf-8"
+        )
+        self.send_header(
+            "Access-Control-Allow-Origin",
+            "*"
+        )
+        self.send_header(
+            "Content-Length",
+            str(len(payload))
+        )
         self.end_headers()
+
         self.wfile.write(payload)
 
     def handle_control(self, clean_path: str) -> bool:
@@ -99,11 +111,9 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         from .slack_routes import handle_slack_routes
         if handle_slack_routes(clean_path, "GET", self.path, getattr(self, "headers", {}), getattr(self, "rfile", None), self.send_json):
             return
-
         if clean_path == "/api/health":
             self.send_json({"status": "ok", "service": "YasinHub"})
             return
-
         if clean_path == "/api/dashboard":
             reports = build_report()
             summary = {
@@ -142,17 +152,14 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 })
             self.send_json({"ecosystem": "Yasin", "dashboard": summary, "projects": projects})
             return
-
         if clean_path == "/api/status":
             reports = build_report()
             self.send_json({"ecosystem": "Yasin", "projects": [{"name": r.name, "status": r.health_state, "last_run": r.last_run, "success": r.last_success, "message": r.last_message, "metrics": r.metrics, "db_stats": r.db_stats, "health": r.health} for r in reports]})
             return
-
         if clean_path == "/api/services":
             services = [{"name": p.name, "description": p.description, "path": p.path, "controls": ["start", "stop", "restart"]} for p in default_registry()]
             self.send_json({"ecosystem": "Yasin", "services": services})
             return
-
         if clean_path.startswith("/api/logs/"):
             service = clean_path.split("/")[-1]
             query_params = parse_qs(parsed_url.query)
@@ -163,7 +170,8 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             max_lines = max(10, min(max_lines, 1000))
             filter_term = query_params.get("filter", [None])[0]
             from ..config_manager import get_logs_dir
-            log_file = get_logs_dir() / f"{service}.log"
+            log_dir = get_logs_dir()
+            log_file = log_dir / f"{service}.log"
             if log_file.exists():
                 all_lines = log_file.read_text(encoding="utf-8", errors="ignore").splitlines()
                 if filter_term:
@@ -173,10 +181,10 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 lines = []
             self.send_json({"service": service, "count": len(lines), "lines": lines})
             return
-
         if clean_path.startswith("/api/metrics/"):
             service = clean_path.split("/")[-1]
-            project = next((p for p in default_registry() if p.name == service), None)
+            projects = default_registry()
+            project = next((p for p in projects if p.name == service), None)
             if project is None:
                 self.send_json({"success": False, "error": "service not found"})
                 return
@@ -185,7 +193,8 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             if saved_pid and is_pid_alive(saved_pid):
                 data["pid"] = saved_pid
             try:
-                item = next((r for r in build_report() if r.name == service), None)
+                report = build_report()
+                item = next((r for r in report if r.name == service), None)
                 if item:
                     data["status"] = item.health_state
                     data["metrics"] = item.metrics or {}
@@ -194,13 +203,11 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 data["error"] = str(e)
             self.send_json(data)
             return
-
         if clean_path in ("/api/events/cleanup", "/api/events/clear"):
             from ..events_engine import cleanup_events
             success = cleanup_events()
             self.send_json({"success": success, "message": "Event storage cleaned up successfully" if success else "Failed to clean up event storage"})
             return
-
         if clean_path == "/api/events":
             query_params = parse_qs(parsed_url.query)
             service = query_params.get("service", [None])[0]
@@ -213,10 +220,10 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             except ValueError:
                 limit = 50
             from ..events_engine import parse_events_from_logs, filter_events
-            filtered = filter_events(parse_events_from_logs(), service=service, event_type=event_type, severity=severity, level=level, limit=limit)
+            all_events = parse_events_from_logs()
+            filtered = filter_events(all_events, service=service, event_type=event_type, severity=severity, level=level, limit=limit)
             self.send_json({"count": len(filtered), "events": filtered})
             return
-
         if clean_path == "/dashboard":
             query = parsed_url.query
             redirect_target = "/dashboard/"
@@ -226,7 +233,6 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             self.send_header("Location", redirect_target)
             self.end_headers()
             return
-
         if clean_path.startswith("/dashboard/"):
             dashboard_root = Path(__file__).resolve().parents[2] / "dashboard"
             relative_path_str = clean_path[len("/dashboard/"):]
@@ -238,7 +244,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 if file_path.suffix == ".html":
                     content_type = "text/html; charset=utf-8"
                 elif file_path.suffix == ".css":
-                    content_type = "text/css; charset=utf-8"
+                    content_type = "application/javascript" if False else "text/css; charset=utf-8"
                 elif file_path.suffix == ".js":
                     content_type = "application/javascript"
                 elif file_path.suffix == ".json":
