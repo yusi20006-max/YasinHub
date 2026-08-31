@@ -1,20 +1,22 @@
 """
-Slack interactive operations: View / Cancel / Retry (#73) + Yasin confirm (#99).
+Slack interactive operations: View / Cancel / Retry (#73) + Yasin confirm (#99/#101).
 
 Every action: verify (routes) → identity → authorize → Control API / Interface.
 Never trust button payloads as authorization.
+Interactive deduplication is backed by the shared state abstraction so workers
+share the same duplicate-control window.
 """
 
 from __future__ import annotations
 
 import logging
-import time
 import uuid
-from dataclasses import dataclass, field
-from typing import Dict, Optional, Set
+from dataclasses import dataclass
+from typing import Optional
 
 from ...adapters.agent_runtime import get_runtime_adapter
 from ...execution.control_api import ControlRequest, get_control_api
+from ...interface.session import get_session_store
 from ...observer import get_default_store
 from .events import SlackInboundEvent
 from .permissions import (
@@ -43,21 +45,33 @@ class InteractionResult:
     data: Optional[dict] = None
 
 
-@dataclass
 class InteractionDeduper:
-    ttl_seconds: float = 300.0
-    _seen: Dict[str, float] = field(default_factory=dict)
-    _lock_keys: Set[str] = field(default_factory=set)
+    """SharedState-backed deduper with an atomic claim operation."""
+
+    def __init__(self, ttl_seconds: float = 300.0, store=None) -> None:
+        self.ttl_seconds = ttl_seconds
+        self._store = store
+
+    @property
+    def store(self):
+        return self._store or get_session_store().store
 
     def already_processed(self, key: str) -> bool:
-        now = time.time()
-        expired = [k for k, t in self._seen.items() if now - t > self.ttl_seconds]
-        for k in expired:
-            self._seen.pop(k, None)
-        if key in self._seen:
-            return True
-        self._seen[key] = now
-        return False
+        if not key:
+            return False
+        owner = uuid.uuid4().hex
+        try:
+            return not self.store.try_acquire(
+                "yasin_slack_interaction_dedupe",
+                key,
+                owner,
+                ttl_seconds=self.ttl_seconds,
+            )
+        except Exception as exc:
+            # Deduplication must never become a new availability dependency.
+            # Control API idempotency remains authoritative for mutations.
+            logger.warning("slack_interaction_dedupe_unavailable error=%s", type(exc).__name__)
+            return False
 
 
 _deduper = InteractionDeduper()
