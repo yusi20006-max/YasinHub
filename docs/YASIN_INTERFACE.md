@@ -1,6 +1,6 @@
 # Yasin Interface (Phase 4)
 
-**Status:** Phase 4 production path (#96 + #99 + #101)
+**Status:** Phase 4 production path (#96 + #99 + #101 + #105)
 
 ## Architecture
 
@@ -47,7 +47,7 @@ Legacy text confirmation cannot bypass the pending-token validation path.
 
 ## Interactive deduplication
 
-Slack interactive duplicate detection uses the existing `SharedState` abstraction with an atomic `try_acquire` operation and a bounded TTL. There is no second persistence implementation. If the shared-state backend is temporarily unavailable, the deduper fails open only for the pre-execution duplicate check; mutating actions remain protected by the Control API's authoritative idempotency boundary.
+Slack interactive duplicate detection uses the existing `SharedState` abstraction with an atomic `try_acquire` operation and a bounded TTL. There is no second persistence implementation. If the shared-state backend is temporarily unavailable, the deduper **fails closed**: interactive actions are refused and no mutating path is entered. Control API `control_event_id` idempotency remains an additional authoritative boundary when SharedState is healthy.
 
 ## Channel adapters
 
