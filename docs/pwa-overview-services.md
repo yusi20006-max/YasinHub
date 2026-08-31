@@ -1,3 +1,0 @@
-# PWA Overview Services
-
-Placeholder.
