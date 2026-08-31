@@ -121,7 +121,8 @@ export function normalizeFleet(raw) {
 }
 
 export function statusClass(status) {
-  const s = String(status || "").toLowerCase();
+  let s = String(status || "").toLowerCase().replace(/\s+/g, "_");
+  if (s === "success") s = "succeeded";
   if (["queued", "running", "paused", "succeeded", "failed", "cancelled",
        "cancelling", "completed_with_failures"].includes(s)) {
     return "status-" + s.replace(/_/g, "-");
