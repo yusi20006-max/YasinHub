@@ -1,4 +1,4 @@
-"""HTTP route handlers for external integrations (monday, GitHub)."""
+"""HTTP route handlers for external integrations and the Yasin Interface."""
 
 from __future__ import annotations
 
@@ -26,6 +26,12 @@ def handle_integration_routes(
     send_json: Callable[..., Any],
 ) -> bool:
     """Return True if request was handled."""
+
+    # --- Yasin Interface / PWA ---
+    from .interface_routes import handle_interface_routes
+
+    if handle_interface_routes(clean_path, method, path, headers, rfile, send_json):
+        return True
 
     # --- monday ---
     if clean_path in (
