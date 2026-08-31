@@ -44,11 +44,10 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def handle_control(self, clean_path: str) -> bool:
-        """پردازش دستورات کنترلی سرویس‌ها"""
         if clean_path.startswith("/api/control/"):
             parts = clean_path.split("/")
             if len(parts) < 5:
-                return False  # let unified Control API handle /api/control and /api/control/command
+                return False
 
             service = parts[3]
             action = parts[4]
@@ -90,6 +89,17 @@ class YasinHubHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed_url = urlparse(self.path)
         clean_path = parsed_url.path
+
+        from .interface_routes import handle_interface_routes
+        if handle_interface_routes(
+            clean_path,
+            "POST",
+            self.path,
+            getattr(self, "headers", {}),
+            getattr(self, "rfile", None),
+            self.send_json,
+        ):
+            return
 
         from .control_routes import handle_control_api_routes
         if handle_control_api_routes(
@@ -153,6 +163,17 @@ class YasinHubHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed_url = urlparse(self.path)
         clean_path = parsed_url.path
+
+        from .interface_routes import handle_interface_routes
+        if handle_interface_routes(
+            clean_path,
+            "GET",
+            self.path,
+            getattr(self, "headers", {}),
+            getattr(self, "rfile", None),
+            self.send_json,
+        ):
+            return
 
         from .control_routes import handle_control_api_routes
         if handle_control_api_routes(
@@ -434,7 +455,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 if file_path.suffix == ".html":
                     content_type = "text/html; charset=utf-8"
                 elif file_path.suffix == ".css":
-                    content_type = "application/javascript" if False else "text/css; charset=utf-8"
+                    content_type = "text/css; charset=utf-8"
                 elif file_path.suffix == ".js":
                     content_type = "application/javascript"
                 elif file_path.suffix == ".json":
