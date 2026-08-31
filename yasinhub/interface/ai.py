@@ -1,4 +1,4 @@
-"""Yasin-AI capability abstraction (#96/#99/#101).
+"""Yasin-AI capability abstraction (#96/#99/#101/#110).
 
 Configuration (env):
   YASIN_AI_PROVIDER = fake | null | openai | http | openai_compatible
@@ -22,6 +22,9 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Protocol
+
+from .ai_runtime import sanitize_ai_context
+from .ai_runtime import ai_runtime_status as _status_impl
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +91,13 @@ def _parse_timeout(value: str | None) -> float | None:
 
 class FakeAIProvider:
     def complete(self, *, system: str, user: str, context: Dict[str, Any]) -> AICompletion:
+        if context and context.get("cancel_requested"):
+            return AICompletion(
+                text="AI request cancelled before provider call.",
+                confidence=0.0,
+                provider="fake",
+                error="cancelled",
+            )
         eid = context.get("execution_id") or (context.get("execution") or {}).get("execution_id")
         status = (context.get("execution") or {}).get("status")
         error = (context.get("execution") or {}).get("error")
@@ -156,21 +166,15 @@ class HttpAIProvider:
         self._name = name.strip() or "openai"
 
     def complete(self, *, system: str, user: str, context: Dict[str, Any]) -> AICompletion:
-        ctx_summary = {
-            k: v
-            for k, v in context.items()
-            if k
-            in (
-                "execution_id",
-                "sources",
-                "execution",
-                "github",
-                "monday",
-                "reconciliation",
-                "recent_executions",
+        if context and context.get("cancel_requested"):
+            return AICompletion(
+                text="AI request cancelled before provider call.",
+                confidence=0.0,
+                provider=self._name,
+                error="cancelled",
             )
-        }
-        safe_ctx = json.dumps(ctx_summary, default=str)[:4000]
+        safe_ctx_obj = sanitize_ai_context(context)
+        safe_ctx = json.dumps(safe_ctx_obj, default=str)[:4000]
         payload = {
             "model": self._model,
             "messages": [
@@ -282,19 +286,51 @@ def create_ai_provider_from_env() -> AIProvider:
 _provider: Optional[AIProvider] = None
 
 
+class _SafeAIProvider:
+    """Wrap any provider with cancel + sanitize (#110)."""
+
+    def __init__(self, inner: AIProvider) -> None:
+        self._inner = inner
+
+    def complete(self, *, system: str, user: str, context: Dict[str, Any]) -> AICompletion:
+        if context and context.get("cancel_requested"):
+            return AICompletion(
+                text="AI request cancelled before provider call.",
+                confidence=0.0,
+                provider=getattr(self._inner, "_name", type(self._inner).__name__),
+                error="cancelled",
+            )
+        safe = sanitize_ai_context(context)
+        return self._inner.complete(system=system, user=user, context=safe)
+
+
 def get_ai_provider() -> AIProvider:
     global _provider
     if _provider is None:
         if os.environ.get("YASIN_AI_PROVIDER"):
-            _provider = create_ai_provider_from_env()
+            raw = create_ai_provider_from_env()
         else:
-            _provider = FakeAIProvider()
+            raw = FakeAIProvider()
+        _provider = _SafeAIProvider(raw)
     return _provider
+
+
+def ai_runtime_status() -> Dict[str, Any]:
+    return _status_impl(
+        lambda: get_ai_provider()._inner
+        if isinstance(get_ai_provider(), _SafeAIProvider)
+        else get_ai_provider()
+    )
 
 
 def set_ai_provider(provider: Optional[AIProvider]) -> None:
     global _provider
-    _provider = provider
+    if provider is None:
+        _provider = None
+    elif isinstance(provider, _SafeAIProvider):
+        _provider = provider
+    else:
+        _provider = _SafeAIProvider(provider)
 
 
 def reset_ai_provider_for_tests() -> None:

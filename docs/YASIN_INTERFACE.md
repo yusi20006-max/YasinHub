@@ -1,6 +1,6 @@
 # Yasin Interface (Phase 4)
 
-**Status:** Phase 4 production path (#96 + #99 + #101 + #105)
+**Status:** Phase 4 production path (#96 + #99 + #101 + #105 + #109 + #110)
 
 ## Architecture
 
@@ -28,6 +28,16 @@ All three channel adapters use the same `YasinInterface.handle(...)` path. Adapt
 Production configuration is validated before an HTTP provider is constructed. Invalid provider/base URL/model/timeout configuration, or missing credentials, degrades to `NullAIProvider` without exposing secrets. Direct `HttpAIProvider` construction rejects invalid configuration with `ValueError`.
 
 HTTP failures, timeouts, malformed/empty responses, and unavailable endpoints return controlled `AICompletion` errors; provider credentials are never included in logs or user-facing error text. OpenAI-compatible endpoints use the single HTTP provider path rather than vendor-specific integrations.
+
+
+## Production AI runtime (#110)
+
+- `sanitize_ai_context` bounds and redacts context before any provider call.
+- Actor / source / session / intent metadata may be included; credentials and raw headers never are.
+- `cancel_requested` in context short-circuits the provider (no network call).
+- `ai_runtime_status()` exposes non-secret readiness for operations.
+- Missing or invalid credentials degrade to `NullAIProvider`; Control API is never bypassed.
+- Model output cannot execute shell, code, HTTP, or privileged operations.
 
 ## Slack confirmation UX
 
