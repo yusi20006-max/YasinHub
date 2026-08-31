@@ -163,7 +163,6 @@ class PolicyEngine:
         control_event_id: Optional[str] = None,
         **policy_kwargs: Any,
     ) -> PolicyDecision:
-        # Shared-state idempotency across workers/restarts (#93)
         if control_event_id:
             from ..storage.shared_state import NS_CONTROL_EVENTS, get_shared_state
 
@@ -234,13 +233,51 @@ class PolicyEngine:
         )
         with self._lock:
             self._audit.append(rec)
-        logger.info("audit %s", rec.as_dict())
+        payload = rec.as_dict()
+        try:
+            from ..storage.audit_store import get_audit_store
+
+            get_audit_store().append(payload)
+        except Exception as exc:
+            logger.warning("durable_audit_append_failed err=%s", type(exc).__name__)
+        logger.info("audit %s", payload)
         return rec
 
-    def list_audit(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def list_audit(
+        self,
+        limit: int = 100,
+        *,
+        actor: Optional[str] = None,
+        execution_id: Optional[str] = None,
+        action: Optional[str] = None,
+        since: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        try:
+            from ..storage.audit_store import get_audit_store
+
+            durable = get_audit_store().list(
+                limit=limit,
+                actor=actor,
+                execution_id=execution_id,
+                action=action,
+                since=since,
+            )
+            if durable:
+                return durable
+        except Exception as exc:
+            logger.warning("durable_audit_list_failed err=%s", type(exc).__name__)
         with self._lock:
-            items = list(self._audit)[-limit:]
-        return [r.as_dict() for r in items]
+            items = list(self._audit)
+        out = [r.as_dict() for r in items]
+        if actor is not None:
+            out = [i for i in out if i.get("actor") == actor]
+        if execution_id is not None:
+            out = [i for i in out if i.get("execution_id") == execution_id]
+        if action is not None:
+            out = [i for i in out if i.get("action") == action]
+        if since is not None:
+            out = [i for i in out if float(i.get("timestamp") or 0) >= since]
+        return out[-limit:]
 
 
 _engine: Optional[PolicyEngine] = None
