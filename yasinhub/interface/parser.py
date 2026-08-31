@@ -96,8 +96,10 @@ def parse_intent(text: str) -> Intent:
                 entities=[x for x in [eid, str(pr) if pr else None] if x],
             )
 
+    failure_words = ("failed", "failure", "failing", "fail", "what went wrong", "root cause")
+    failure_follow_up = "why" in low and any(word in low for word in failure_words)
     if any(w in low for w in ("why", "investigate", "root cause", "what went wrong", "failed", "failure", "ci failed")):
-        if eid or "execution" in low or "ci" in low:
+        if eid or "execution" in low or "ci" in low or failure_follow_up:
             return Intent(
                 kind=IntentKind.INVESTIGATE_FAILURE,
                 raw_text=raw,
