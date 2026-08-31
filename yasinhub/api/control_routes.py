@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
+from ..auth import AuthError, authenticate_http
 from ..execution.control_api import ControlRequest, get_control_api
 
 
@@ -59,13 +60,35 @@ def handle_control_api_routes(
         if body.get("__malformed__"):
             send_json({"success": False, "error": "malformed JSON"}, status=400)
             return True
-        if not body.get("actor"):
-            if hasattr(headers, "get"):
-                body["actor"] = headers.get("X-Actor") or body.get("actor") or "hub-user"
-            else:
-                body.setdefault("actor", "hub-user")
+
+        body_actor = body.get("actor")
+        if not body_actor and hasattr(headers, "get"):
+            body_actor = headers.get("X-Actor")
+
+        try:
+            auth = authenticate_http(
+                headers,
+                body_actor=str(body_actor) if body_actor else None,
+            )
+        except AuthError as exc:
+            send_json(
+                {"success": False, "error": exc.message, "code": exc.code},
+                status=exc.status,
+            )
+            return True
+
+        # Authenticated identity always overrides client-supplied actor.
+        body["actor"] = auth.actor
         if not body.get("source"):
             body["source"] = "http-api"
+        # Carry auth metadata without elevating privileges beyond Policy.
+        meta = dict(body.get("metadata") or {})
+        meta["auth_method"] = auth.principal.auth_method
+        meta["auth_mode"] = auth.mode.value
+        meta["role"] = auth.role.value
+        meta["authenticated"] = auth.authenticated
+        body["metadata"] = meta
+
         req = ControlRequest.from_dict(body)
         resp = get_control_api().handle(req)
         send_json(resp.as_dict(), status=resp.status_code)
