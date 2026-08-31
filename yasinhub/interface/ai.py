@@ -1,13 +1,14 @@
-"""Yasin-AI capability abstraction (#96/#99). Provider-agnostic.
+"""Yasin-AI capability abstraction (#96/#99/#101).
 
 Configuration (env):
-  YASIN_AI_PROVIDER = fake | null | openai | http
+  YASIN_AI_PROVIDER = fake | null | openai | http | openai_compatible
   YASIN_AI_API_KEY  = secret (never logged)
-  YASIN_AI_BASE_URL = e.g. https://api.openai.com/v1
-  YASIN_AI_MODEL    = model name
-  YASIN_AI_TIMEOUT  = seconds (default 15)
+  YASIN_AI_BASE_URL = HTTPS/HTTP OpenAI-compatible API root
+  YASIN_AI_MODEL    = non-empty model name
+  YASIN_AI_TIMEOUT  = seconds, 0 < timeout <= 120 (default 15)
 
-Missing credentials → NullAIProvider (system stays healthy).
+Invalid or incomplete production configuration degrades to NullAIProvider.
+Secrets are never included in logs or user-facing error messages.
 """
 
 from __future__ import annotations
@@ -17,11 +18,18 @@ import logging
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Protocol
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+_DEFAULT_MODEL = "gpt-4o-mini"
+_DEFAULT_TIMEOUT = 15.0
+_MAX_TIMEOUT = 120.0
+_ALLOWED_PROVIDERS = {"fake", "test", "null", "none", "off", "disabled", "", "openai", "http", "openai_compatible"}
 
 
 @dataclass
@@ -49,6 +57,33 @@ def _redact_secrets(text: str) -> str:
     for p in patterns:
         out = re.sub(p, "[REDACTED]", out)
     return out
+
+
+def _valid_base_url(value: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(value)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.netloc)
+        and not parsed.username
+        and not parsed.password
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
+def _parse_timeout(value: str | None) -> float | None:
+    if value is None or not value.strip():
+        return _DEFAULT_TIMEOUT
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not 0 < timeout <= _MAX_TIMEOUT:
+        return None
+    return timeout
 
 
 class FakeAIProvider:
@@ -101,16 +136,24 @@ class HttpAIProvider:
         self,
         *,
         api_key: str,
-        base_url: str = "https://api.openai.com/v1",
-        model: str = "gpt-4o-mini",
-        timeout: float = 15.0,
+        base_url: str = _DEFAULT_BASE_URL,
+        model: str = _DEFAULT_MODEL,
+        timeout: float = _DEFAULT_TIMEOUT,
         name: str = "openai",
     ) -> None:
+        if not api_key.strip():
+            raise ValueError("api_key is required")
+        if not _valid_base_url(base_url.strip()):
+            raise ValueError("base_url must be an absolute HTTP(S) URL without credentials, query, or fragment")
+        if not model.strip():
+            raise ValueError("model is required")
+        if not 0 < timeout <= _MAX_TIMEOUT:
+            raise ValueError("timeout must be greater than 0 and at most 120 seconds")
         self._api_key = api_key
-        self._base_url = base_url.rstrip("/")
-        self._model = model
+        self._base_url = base_url.strip().rstrip("/")
+        self._model = model.strip()
         self._timeout = timeout
-        self._name = name
+        self._name = name.strip() or "openai"
 
     def complete(self, *, system: str, user: str, context: Dict[str, Any]) -> AICompletion:
         ctx_summary = {
@@ -203,6 +246,9 @@ class HttpAIProvider:
 
 def create_ai_provider_from_env() -> AIProvider:
     name = (os.environ.get("YASIN_AI_PROVIDER") or "null").strip().lower()
+    if name not in _ALLOWED_PROVIDERS:
+        logger.warning("ai_provider_invalid_config — using null")
+        return NullAIProvider()
     if name in ("fake", "test"):
         return FakeAIProvider()
     if name in ("null", "none", "off", "disabled", ""):
@@ -210,36 +256,26 @@ def create_ai_provider_from_env() -> AIProvider:
 
     api_key = (os.environ.get("YASIN_AI_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
     if not api_key:
-        logger.info("ai_provider_selected=%s but no API key — using null", name)
+        logger.info("ai_provider_selected=%s but credentials are unavailable — using null", name)
         return NullAIProvider()
 
     base_url = (
         os.environ.get("YASIN_AI_BASE_URL")
         or os.environ.get("OPENAI_BASE_URL")
-        or "https://api.openai.com/v1"
+        or _DEFAULT_BASE_URL
     ).strip()
-    model = (os.environ.get("YASIN_AI_MODEL") or "gpt-4o-mini").strip()
-    try:
-        timeout = float(os.environ.get("YASIN_AI_TIMEOUT") or "15")
-    except ValueError:
-        timeout = 15.0
+    model = (os.environ.get("YASIN_AI_MODEL") or _DEFAULT_MODEL).strip()
+    timeout = _parse_timeout(os.environ.get("YASIN_AI_TIMEOUT"))
+    if not _valid_base_url(base_url) or not model or timeout is None:
+        logger.warning("ai_provider_invalid_config provider=%s — using null", name)
+        return NullAIProvider()
 
-    if name in ("openai", "http", "openai_compatible"):
-        return HttpAIProvider(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            timeout=timeout,
-            name=name if name != "openai_compatible" else "openai",
-        )
-
-    logger.info("ai_provider_unknown name=%s — using openai-compatible HTTP", name)
     return HttpAIProvider(
         api_key=api_key,
         base_url=base_url,
         model=model,
         timeout=timeout,
-        name=name,
+        name=name if name != "openai_compatible" else "openai",
     )
 
 
