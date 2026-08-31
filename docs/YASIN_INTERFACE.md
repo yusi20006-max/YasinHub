@@ -1,6 +1,6 @@
 # Yasin Interface (Phase 4)
 
-**Status:** Phase 4 production path (#96 + #99)
+**Status:** Phase 4 hardened (#96 + #99 + #101)
 
 ## Architecture
 
@@ -18,38 +18,38 @@ ChannelAdapter (Slack / CLI / PWA)
 | Env | Purpose |
 |-----|---------|
 | `YASIN_AI_PROVIDER` | `fake` \| `null` \| `openai` \| `http` |
-| `YASIN_AI_API_KEY` | API key (never commit) |
-| `YASIN_AI_BASE_URL` | OpenAI-compatible base URL |
-| `YASIN_AI_MODEL` | Model name |
-| `YASIN_AI_TIMEOUT` | Seconds (default 15) |
+| `YASIN_AI_API_KEY` | API key (never commit / never logged) |
+| `YASIN_AI_BASE_URL` | Must be `http://` or `https://` |
+| `YASIN_AI_MODEL` | Model name (no whitespace) |
+| `YASIN_AI_TIMEOUT` | 1–120 seconds (default 15) |
 
-Missing credentials → `NullAIProvider` (system stays healthy).
+Invalid base URL / model → NullAIProvider.
+Missing credentials → NullAIProvider (system stays healthy).
 
-## Slack confirmation UX
+`validate_ai_config()` returns structured status without secrets.
+
+## Slack confirmation
 
 ```text
-@Yasin retry execution exec_1842
+@Yasin retry execution exec_…
         ↓
-control proposal + Block Kit [Confirm] [Cancel]
+Block Kit [Confirm] [Cancel]  (value = token only)
         ↓
-identity + shared pending token validation
+identity + SharedState pending (TTL 1h, atomic consume)
         ↓
 Control API
 ```
 
-Button value is only the confirmation token. Authorization comes from identity + policy.
+- Expired tokens cannot execute
+- Duplicate confirms are safe (consume + Control API idempotency)
+- Unauthorized actors cannot confirm another user's request
+- Text `@Yasin confirm <token>` uses the same secure path (no bypass)
+
+## Interactive dedupe
+
+Namespace `slack_interaction_dedupe` on SharedState (TTL 300s).
+Control API `control_event_id` remains authoritative for execution.
 
 ## Channel adapters
 
-```python
-from yasinhub.interface import get_channel_adapter, ChannelMessage
-adapter = get_channel_adapter("cli")
-resp = adapter.handle(ChannelMessage(text="status of execution exec_1", channel="cli", source="cli", actor="ops"))
-```
-
-## Security
-
-- External text is untrusted
-- Control API remains authoritative
-- Confirmation one-time via SharedState
-- Secrets redacted
+`SlackChannelAdapter` / `CLIChannelAdapter` / `PWAChannelAdapter` all call the same engine path.
