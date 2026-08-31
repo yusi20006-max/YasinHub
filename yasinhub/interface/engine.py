@@ -1,4 +1,4 @@
-"""Yasin Interface engine — session + intent + context + safe control (#96/#101)."""
+"""Yasin Interface engine — session + intent + context + safe control (#96/#101/#110)."""
 
 from __future__ import annotations
 
@@ -119,10 +119,25 @@ class YasinInterface:
                 intent, session, actor=actor or yasin_user_id or "anonymous", source=source
             )
 
-        return self._handle_read(intent, session)
+        return self._handle_read(
+            intent, session, actor=actor or yasin_user_id or "anonymous", source=source
+        )
 
-    def _handle_read(self, intent: Intent, session: Session) -> InterfaceResponse:
+    def _handle_read(
+        self,
+        intent: Intent,
+        session: Session,
+        *,
+        actor: str = "anonymous",
+        source: str = "unknown",
+    ) -> InterfaceResponse:
         ctx = gather_context(intent, session, memory_adapter=self.memory)
+        ctx = dict(ctx or {})
+        ctx.setdefault("actor", actor)
+        ctx.setdefault("source", source)
+        ctx.setdefault("channel", session.channel if hasattr(session, "channel") else source)
+        ctx.setdefault("session_id", getattr(session, "session_id", None))
+        ctx.setdefault("intent_kind", intent.kind.value)
         try:
             completion = self.ai.complete(system=SYSTEM_PROMPT, user=intent.raw_text[:2000], context=ctx)
         except Exception as exc:
