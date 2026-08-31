@@ -1,8 +1,9 @@
-"""Yasin Interface engine — session + intent + context + safe control (#96)."""
+"""Yasin Interface engine — session + intent + context + safe control (#96/#101)."""
 
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from typing import Optional
 
@@ -192,6 +193,7 @@ class YasinInterface:
             )
 
         token = f"cfm-{uuid.uuid4().hex[:10]}"
+        now = time.time()
         pending = {
             "token": token,
             "operation": op,
@@ -199,6 +201,8 @@ class YasinInterface:
             "actor": actor,
             "source": source,
             "session_id": session.session_id,
+            "created_at": now,
+            "expires_at": now + 3600,
         }
         session.pending_confirmation = pending
         self._sessions.save_pending_control(token, pending)
@@ -229,14 +233,31 @@ class YasinInterface:
                 success=False,
                 confidence=0.9,
             )
+
         pending = self._sessions.get_pending_control(token)
         if not pending and session.pending_confirmation and session.pending_confirmation.get("token") == token:
-            pending = session.pending_confirmation
+            pending = dict(session.pending_confirmation)
+
         if not pending:
             return InterfaceResponse(
                 answer="No pending control action matches that token (expired or unknown).",
                 intent_kind=intent.kind.value,
+                success=False,
                 confidence=0.9,
+                error="token_expired_or_unknown",
+            )
+
+        expires_at = pending.get("expires_at")
+        if expires_at is not None and float(expires_at) < time.time():
+            self._sessions.clear_pending_control(token)
+            session.pending_confirmation = None
+            self._sessions.save(session)
+            return InterfaceResponse(
+                answer="Confirmation token has expired. Request the control action again.",
+                intent_kind=intent.kind.value,
+                success=False,
+                confidence=1.0,
+                error="token_expired",
             )
 
         if pending.get("actor") and actor and pending["actor"] != actor:
@@ -247,6 +268,22 @@ class YasinInterface:
                 confidence=1.0,
                 error="actor_mismatch",
             )
+
+        consumed = self._sessions.consume_pending_control(token)
+        if consumed is None and not (
+            session.pending_confirmation and session.pending_confirmation.get("token") == token
+        ):
+            return InterfaceResponse(
+                answer="No pending control action matches that token (expired or unknown).",
+                intent_kind=intent.kind.value,
+                success=False,
+                confidence=0.9,
+                error="token_already_used",
+            )
+        if consumed is not None:
+            pending = consumed
+        session.pending_confirmation = None
+        self._sessions.save(session)
 
         op = pending["operation"]
         eid = pending.get("execution_id")
@@ -260,10 +297,6 @@ class YasinInterface:
             metadata={"via": "yasin_interface", "confirmation_token": token},
         )
         resp = self.control.handle(req)
-
-        self._sessions.clear_pending_control(token)
-        session.pending_confirmation = None
-        self._sessions.save(session)
 
         if not resp.success:
             return InterfaceResponse(
