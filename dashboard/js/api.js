@@ -245,6 +245,7 @@ export async function controlExecution(executionId, action, opts) {
     encodeURIComponent(executionId) +
     "/" +
     encodeURIComponent(action);
+  // Actor is optional display hint only; backend resolves authenticated identity.
   const body = { request_id: requestId };
   if (opts && opts.actor) body.actor = String(opts.actor);
   const result = await postJSON(path, body);

@@ -188,8 +188,12 @@ export function renderExecutionDetail(el, exec, events) {
   const history = (exec.history || [])
     .map((h) => `<span class="badge ${statusClass(h)}">${escapeHtml(h)}</span>`)
     .join(" → ");
-  const eventItems = events && events.length
-    ? events.map((ev) => `
+
+  const eventItems =
+    events && events.length
+      ? events
+          .map(
+            (ev) => `
       <li class="event-item">
         <span class="event-seq">#${escapeHtml(ev.sequence)}</span>
         <span class="event-type">${escapeHtml(ev.event_type)}</span>
@@ -199,8 +203,11 @@ export function renderExecutionDetail(el, exec, events) {
           task=<code>${escapeHtml(ev.task_id || "—")}</code>
         </span>
         <span class="event-ts">${escapeHtml(formatTs(ev.timestamp))}</span>
-      </li>`).join("")
-    : "";
+      </li>`
+          )
+          .join("")
+      : "";
+
   el.innerHTML = `
     <div class="detail-header">
       <button type="button" class="btn-link" data-back="executions">← Executions</button>
@@ -216,13 +223,17 @@ export function renderExecutionDetail(el, exec, events) {
       <div class="detail-item"><span class="label">Created</span>${escapeHtml(formatTs(exec.created_at))}</div>
       <div class="detail-item"><span class="label">Started</span>${escapeHtml(formatTs(exec.started_at))}</div>
       <div class="detail-item"><span class="label">Finished</span>${escapeHtml(formatTs(exec.finished_at))}</div>
-      ${ws ? `<div class="detail-item"><span class="label">Workspace</span><code>${escapeHtml(ws.workspace_id || "—")}</code><div class="hint">${escapeHtml(ws.scope || "")} ${ws.path ? "· " + escapeHtml(ws.path) : ""}</div></div>` : ""}
+      ${ws ? `<div class="detail-item"><span class="label">Workspace</span>
+            <code>${escapeHtml(ws.workspace_id || "—")}</code>
+            <div class="hint">${escapeHtml(ws.scope || "")} ${ws.path ? "· " + escapeHtml(ws.path) : ""}</div>
+          </div>` : ""}
       ${exec.error ? `<div class="detail-item"><span class="label">Error</span><span style="color:var(--danger)">${escapeHtml(exec.error)}</span></div>` : ""}
     </div>
     ${caps ? `<div class="caps-list" aria-label="Capabilities">${caps}</div>` : ""}
     ${history ? `<p class="hint">History: ${history}</p>` : ""}
     <h3 style="margin:16px 0 8px;font-size:0.95rem">Events</h3>
     ${eventItems ? `<ul class="event-list timeline">${eventItems}</ul>` : `<div class="state state-empty">No events for this execution.</div>`}`;
+
   const back = el.querySelector("[data-back]");
   if (back) back.addEventListener("click", () => navigate("/executions"));
 }
@@ -232,18 +243,22 @@ export function renderFleetsList(el, fleets) {
     renderEmpty(el, "No fleets yet.");
     return;
   }
-  const rows = fleets.map((f) => {
-    const counts = workerStatusCounts(f.workers);
-    const summary = Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(", ");
-    return `
+  const rows = fleets
+    .map((f) => {
+      const counts = workerStatusCounts(f.workers);
+      const summary = Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(", ");
+      return `
     <tr data-id="${escapeHtml(f.task_id)}" class="clickable-row">
       <td><code>${escapeHtml(f.task_id)}</code></td>
       <td><span class="badge ${statusClass(f.status)}">${escapeHtml(f.status)}</span></td>
       <td>${escapeHtml((f.workers || []).length)}</td>
       <td class="hint">${escapeHtml(summary || "—")}</td>
     </tr>`;
-  }).join("");
-  el.innerHTML = `<div class="table-wrap"><table class="data-table" aria-label="Fleets"><thead><tr><th>Task</th><th>Status</th><th>Workers</th><th>Breakdown</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    })
+    .join("");
+  el.innerHTML = `<div class="table-wrap"><table class="data-table" aria-label="Fleets">
+    <thead><tr><th>Task</th><th>Status</th><th>Workers</th><th>Breakdown</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
   el.querySelectorAll("tr.clickable-row").forEach((row) => {
     row.addEventListener("click", () => {
       const id = row.getAttribute("data-id");
@@ -254,8 +269,11 @@ export function renderFleetsList(el, fleets) {
 
 export function renderFleetDetail(el, fleet) {
   const counts = workerStatusCounts(fleet.workers);
-  const stats = Object.entries(counts).map(([s, n]) => `<span class="stat"><span class="badge ${statusClass(s)}">${escapeHtml(s)}</span> ${n}</span>`).join("");
-  const workers = (fleet.workers || []).map((w) => `
+  const stats = Object.entries(counts)
+    .map(([s, n]) => `<span class="stat"><span class="badge ${statusClass(s)}">${escapeHtml(s)}</span> ${n}</span>`)
+    .join("");
+  const workers = (fleet.workers || [])
+    .map((w) => `
     <tr>
       <td><code>${escapeHtml(w.worker_id)}</code></td>
       <td>${escapeHtml(w.role || "—")}</td>
@@ -264,7 +282,8 @@ export function renderFleetDetail(el, fleet) {
       <td><code>${escapeHtml(w.session_id || "—")}</code></td>
       <td>${w.progress != null ? escapeHtml(String(w.progress)) : "—"}</td>
       <td>${escapeHtml(w.error || "—")}</td>
-    </tr>`).join("");
+    </tr>`)
+    .join("");
   el.innerHTML = `
     <div class="detail-header">
       <button type="button" class="btn-link" data-back="fleets">← Fleets</button>
@@ -273,7 +292,10 @@ export function renderFleetDetail(el, fleet) {
     </div>
     ${controlBarHtml("fleet", fleet.task_id, fleet.status)}
     <div class="fleet-summary">${stats || '<span class="hint">No workers</span>'}</div>
-    <div class="table-wrap"><table class="data-table" aria-label="Workers"><thead><tr><th>Worker</th><th>Role</th><th>Status</th><th>Execution</th><th>Session</th><th>Progress</th><th>Error</th></tr></thead><tbody>${workers || '<tr><td colspan="7">No workers</td></tr>'}</tbody></table></div>`;
+    <div class="table-wrap"><table class="data-table" aria-label="Workers">
+      <thead><tr><th>Worker</th><th>Role</th><th>Status</th><th>Execution</th><th>Session</th><th>Progress</th><th>Error</th></tr></thead>
+      <tbody>${workers || '<tr><td colspan="7">No workers</td></tr>'}</tbody>
+    </table></div>`;
   const back = el.querySelector("[data-back]");
   if (back) back.addEventListener("click", () => navigate("/fleets"));
 }
@@ -283,13 +305,19 @@ export function renderEventsTimeline(el, events) {
     renderEmpty(el, "No execution events.");
     return;
   }
-  const items = events.map((ev) => `
+  const items = events
+    .map((ev) => `
     <li class="event-item">
       <span class="event-seq">#${escapeHtml(ev.sequence)}</span>
       <span class="event-type">${escapeHtml(ev.event_type)}</span>
       <span class="badge ${statusClass(ev.status)}">${escapeHtml(ev.status)}</span>
-      <span class="event-meta">exec=<code>${escapeHtml(ev.execution_id || "—")}</code>${ev.worker_id ? ` worker=<code>${escapeHtml(ev.worker_id)}</code>` : ""} task=<code>${escapeHtml(ev.task_id || "—")}</code></span>
+      <span class="event-meta">
+        exec=<code>${escapeHtml(ev.execution_id || "—")}</code>
+        ${ev.worker_id ? ` worker=<code>${escapeHtml(ev.worker_id)}</code>` : ""}
+        task=<code>${escapeHtml(ev.task_id || "—")}</code>
+      </span>
       <span class="event-ts">${escapeHtml(formatTs(ev.timestamp))}</span>
-    </li>`).join("");
+    </li>`)
+    .join("");
   el.innerHTML = `<ul class="event-list timeline" aria-label="Event timeline">${items}</ul>`;
 }
