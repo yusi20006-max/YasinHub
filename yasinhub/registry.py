@@ -60,7 +60,7 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         path=str(Path.home() / "yasin-ecosystem" / "Yasin-agent-main"),
         process_pattern=None,
         description="اجرای وظایف چندمرحله‌ای (بدون پروسس دائمی)",
-        start_command="python3 -m yasin_agent.cli"
+        start_command="python3 -m agent_platform.cli"
     ),
     ProjectEntry(
         name="yasin-ai",
