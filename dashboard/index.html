@@ -1,51 +1,54 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="fa" dir="rtl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f172a">
-  <title>YasinHub Dashboard</title>
+  <title>داشبورد یاسین‌هاب · YasinHub</title>
   <link rel="stylesheet" href="style.css">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon-192.png" type="image/png">
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to content</a>
+  <a class="skip-link" href="#main">پرش به محتوا</a>
 
   <header class="app-header">
     <div class="brand">
-      <button type="button" id="nav-toggle" class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
-      <h1>YasinHub</h1>
+      <button type="button" id="nav-toggle" class="nav-toggle" aria-label="باز و بسته کردن منو" aria-expanded="false">☰</button>
+      <h1>یاسین‌هاب <span class="sr-only">YasinHub</span></h1>
+      <span class="brand-tag">مرکز عملیات</span>
     </div>
     <div class="header-meta">
       <span id="connection-status" class="connection-status" role="status" aria-live="polite" aria-atomic="true">…</span>
-      <span id="stale-indicator" class="stale-indicator" hidden title="Data may be stale">stale</span>
-      <button type="button" id="yasin-chat-open" class="btn-secondary">Yasin</button>
-      <button type="button" id="theme-toggle" class="btn-ghost" aria-label="Toggle theme">Theme</button>
+      <span id="stale-indicator" class="stale-indicator" hidden title="ممکن است داده‌ها قدیمی باشند">منقضی</span>
+      <button type="button" id="yasin-chat-open" class="btn-secondary">یاسین</button>
+      <button type="button" id="theme-toggle" class="btn-ghost" aria-label="تغییر پوسته" aria-pressed="false">پوسته</button>
     </div>
   </header>
 
   <div class="app-shell">
-    <nav id="sidebar" class="sidebar" aria-label="Primary">
+    <nav id="sidebar" class="sidebar" aria-label="ناوبری اصلی">
       <ul>
-        <li><a href="#/" data-nav="overview">Overview</a></li>
-        <li><a href="#/executions" data-nav="executions">Executions</a></li>
-        <li><a href="#/fleets" data-nav="fleets">Fleets</a></li>
-        <li><a href="#/events" data-nav="events">Events</a></li>
+        <li><a href="#/" data-nav="overview">نمای کلی</a></li>
+        <li><a href="#/executions" data-nav="executions">اجراها</a></li>
+        <li><a href="#/fleets" data-nav="fleets">ناوها</a></li>
+        <li><a href="#/events" data-nav="events">رویدادها</a></li>
       </ul>
-      <p class="nav-footnote">Observer · Control plane surface. No shell/filesystem access.</p>
+      <p class="nav-footnote">سطح مشاهده و کنترل · بدون دسترسی به شِل یا فایل‌سیستم</p>
     </nav>
 
     <main id="main" class="main">
       <div class="page-heading">
-        <h2 id="page-title">Overview</h2>
-        <button type="button" id="refresh-btn" class="btn-secondary">Refresh</button>
+        <h2 id="page-title">نمای کلی</h2>
+        <button type="button" id="refresh-btn" class="btn-secondary">به‌روزرسانی</button>
       </div>
       <div id="content" class="content" aria-live="polite">
-        <div class="state state-loading">Loading…</div>
+        <div class="state state-loading">در حال بارگذاری…</div>
       </div>
     </main>
   </div>
+
+  <div id="toast-host" class="toast-host" aria-live="polite" aria-relevant="additions"></div>
 
   <script type="module" src="app.js"></script>
   <script type="module" src="chat.js"></script>
