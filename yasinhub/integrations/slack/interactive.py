@@ -1,5 +1,5 @@
 """
-Slack interactive operations: View / Cancel / Retry (#73) + Yasin confirm (#99).
+Slack interactive operations: View / Cancel / Retry (#73) + Yasin confirm (#99/#101).
 
 Every action: verify (routes) → identity → authorize → Control API / Interface.
 Never trust button payloads as authorization.
@@ -10,8 +10,8 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
-from typing import Dict, Optional, Set
+from dataclasses import dataclass
+from typing import Dict, Optional
 
 from ...adapters.agent_runtime import get_runtime_adapter
 from ...execution.control_api import ControlRequest, get_control_api
@@ -43,20 +43,44 @@ class InteractionResult:
     data: Optional[dict] = None
 
 
-@dataclass
+NS_INTERACTION_DEDUPE = "slack_interaction_dedupe"
+_DEDUPE_TTL = 300.0
+
+
 class InteractionDeduper:
-    ttl_seconds: float = 300.0
-    _seen: Dict[str, float] = field(default_factory=dict)
-    _lock_keys: Set[str] = field(default_factory=set)
+    """SharedState-backed idempotency for interactive action keys (#101).
+
+    Control API control_event_id remains authoritative for control execution.
+    This only suppresses duplicate Slack button deliveries across workers.
+    """
+
+    def __init__(self, store=None, ttl_seconds: float = _DEDUPE_TTL) -> None:
+        self._store = store
+        self.ttl_seconds = ttl_seconds
+
+    @property
+    def store(self):
+        if self._store is None:
+            from ...storage.shared_state import get_shared_state
+
+            self._store = get_shared_state()
+        return self._store
 
     def already_processed(self, key: str) -> bool:
-        now = time.time()
-        expired = [k for k, t in self._seen.items() if now - t > self.ttl_seconds]
-        for k in expired:
-            self._seen.pop(k, None)
-        if key in self._seen:
+        if not key:
+            return False
+        existing = self.store.get(NS_INTERACTION_DEDUPE, key)
+        if existing is not None:
             return True
-        self._seen[key] = now
+        marker = {"ts": time.time()}
+        if hasattr(self.store, "compare_and_set"):
+            ok = self.store.compare_and_set(
+                NS_INTERACTION_DEDUPE, key, None, marker, ttl_seconds=self.ttl_seconds
+            )
+            if ok:
+                return False
+            return True
+        self.store.set(NS_INTERACTION_DEDUPE, key, marker, ttl_seconds=self.ttl_seconds)
         return False
 
 
@@ -71,8 +95,13 @@ class InteractiveHandler:
         action = (event.action_id or "").strip().lower()
         value = (event.action_value or "").strip()
 
-        # Phase 4 Block Kit confirmation (#99) — payload alone is not authorization
         if action in ("yasin_confirm", "yasin_cancel"):
+            dedupe_key = event.trigger_id or f"yasin:{action}:{value}:{event.slack_user_id}"
+            if _deduper.already_processed(dedupe_key):
+                return InteractionResult(
+                    ok=True,
+                    text=f"Confirmation action `{action}` already processed (idempotent).",
+                )
             return self._handle_yasin_confirmation(event, action, value)
 
         cmd = ACTION_TO_COMMAND.get(action)
