@@ -7,6 +7,7 @@
  *   #/fleets           → fleets list
  *   #/fleets/:id       → fleet detail
  *   #/events           → events timeline
+ *   #/yasin            → Yasin conversational surface
  * @module router
  */
 
@@ -44,6 +45,9 @@ export function parseRoute(hash) {
   }
   if (parts[0] === "events") {
     return { name: "events", params: {}, path: "/events" };
+  }
+  if (parts[0] === "yasin") {
+    return { name: "yasin", params: {}, path: "/yasin" };
   }
   return { name: "overview", params: {}, path: "/" };
 }
