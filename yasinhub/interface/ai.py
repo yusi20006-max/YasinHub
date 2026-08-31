@@ -65,7 +65,6 @@ def validate_ai_config(
     model: str = "",
     timeout: float = 15.0,
 ) -> Dict[str, Any]:
-    """Validate provider configuration. Never includes secrets in the result."""
     name = (provider or "null").strip().lower()
     issues = []
     if name and name not in ALLOWED_PROVIDERS:
@@ -144,8 +143,6 @@ class NullAIProvider:
 
 
 class HttpAIProvider:
-    """OpenAI-compatible chat completions via stdlib urllib."""
-
     def __init__(
         self,
         *,
@@ -217,7 +214,7 @@ class HttpAIProvider:
                 )
             return AICompletion(text=text, confidence=0.65, provider=self._name)
         except urllib.error.HTTPError as exc:
-            logger.warning("ai_http_error status=%s provider=%s", exp.code if False else exc.code, self._name)
+            logger.warning("ai_http_error status=%s provider=%s", exc.code, self._name)
             return AICompletion(
                 text="AI provider returned an error. YasinHub remains healthy.",
                 confidence=0.0,
