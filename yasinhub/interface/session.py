@@ -1,4 +1,4 @@
-"""Channel-neutral session store backed by SharedState (#96 / #93)."""
+"""Channel-neutral session store backed by SharedState (#96 / #93 / #101)."""
 
 from __future__ import annotations
 
@@ -184,6 +184,16 @@ class SessionStore:
 
     def clear_pending_control(self, token: str) -> None:
         self.store.delete(NS_PENDING_CONTROL, token)
+
+    def consume_pending_control(self, token: str) -> Optional[Dict[str, Any]]:
+        """Atomically read-and-clear pending control (multi-worker safe)."""
+        data = self.store.get(NS_PENDING_CONTROL, token)
+        if not isinstance(data, dict):
+            return None
+        if self.store.compare_and_set(NS_PENDING_CONTROL, token, data, None, ttl_seconds=1):
+            self.store.delete(NS_PENDING_CONTROL, token)
+            return data
+        return None
 
 
 _session_store: Optional[SessionStore] = None
