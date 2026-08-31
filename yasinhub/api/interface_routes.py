@@ -3,12 +3,16 @@
 The PWA is a thin transport adapter. Conversation state, intent parsing,
 context gathering, confirmation, policy, audit, and Control API execution
 remain owned by the existing interface/control boundaries.
+
+Authentication (#109) establishes identity for HTTP/PWA. Authorization
+remains with Policy / Control API.
 """
 
 from __future__ import annotations
 
 from typing import Any, Callable
 
+from ..auth import AuthError, authenticate_http
 from ..interface.adapters import ChannelMessage, PWAChannelAdapter
 from .control_routes import read_json_body
 
@@ -46,10 +50,26 @@ def handle_interface_routes(
         )
         return True
 
-    actor = None
+    body_actor = None
     if hasattr(headers, "get"):
-        actor = headers.get("X-Actor")
-    actor = actor or body.get("actor") or "pwa-user"
+        body_actor = headers.get("X-Actor")
+    body_actor = body_actor or body.get("actor")
+
+    try:
+        auth = authenticate_http(headers, body_actor=str(body_actor) if body_actor else None)
+    except AuthError as exc:
+        send_json(
+            {"success": False, "error": exc.message, "code": exc.code},
+            status=exc.status,
+        )
+        return True
+
+    actor = auth.actor
+    # Authenticated principal always wins over client-supplied identity fields.
+    yasin_user_id = auth.principal.yasin_user_id
+    if not auth.authenticated:
+        # Soft path (dev/test only): allow optional body yasin_user_id for continuity.
+        yasin_user_id = str(body.get("yasin_user_id") or actor)
 
     thread_id = body.get("thread_id")
     if thread_id is not None and not isinstance(thread_id, str):
@@ -67,10 +87,16 @@ def handle_interface_routes(
             channel="pwa",
             source="pwa",
             actor=str(actor),
-            yasin_user_id=str(body.get("yasin_user_id") or actor),
+            yasin_user_id=str(yasin_user_id),
             thread_id=thread_id,
             channel_id=channel_id,
-            metadata={"transport": "http"},
+            metadata={
+                "transport": "http",
+                "auth_method": auth.principal.auth_method,
+                "auth_mode": auth.mode.value,
+                "role": auth.role.value,
+                "authenticated": auth.authenticated,
+            },
         )
     )
     send_json(response.as_dict())
