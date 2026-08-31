@@ -501,3 +501,9 @@ def get_default_store() -> ExecutionObserverStore:
         if _default_store is None:
             _default_store = ExecutionObserverStore()
         return _default_store
+
+
+# Production lifecycle durability/recovery (#112)
+from .lifecycle_ext import install as _install_lifecycle
+
+_install_lifecycle(ExecutionObserverStore, redact_secrets=redact_secrets, InvalidTransitionError=InvalidTransitionError)
