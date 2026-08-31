@@ -1,35 +1,45 @@
-"""HTTP routes for the Yasin Interface conversational surface (#105).
+"""HTTP handlers for Yasin Interface conversational surface (PWA / text).
 
-PWA / CLI clients post natural-language messages here.
-All control still goes through the Interface Engine → Control API.
+POST /api/interface/chat → PWAChannelAdapter → Yasin Interface Engine → Control API
+
+No second engine. No Agent bypass. Control API remains the only execution boundary.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable
+import uuid
+from typing import Any, Callable, Dict, Optional
 
-from ..interface.adapters import ChannelMessage, get_channel_adapter
+from ..interface.adapters import ChannelMessage, PWAChannelAdapter, get_channel_adapter
+from ..interface.engine import get_yasin_interface
 from ..interface.response import InterfaceResponse
 
 logger = logging.getLogger(__name__)
 
 
-def _response_payload(resp: InterfaceResponse) -> dict:
-    return {
-        "success": resp.success,
-        "answer": resp.answer,
-        "intent_kind": resp.intent_kind,
-        "confirmation_required": resp.confirmation_required,
-        "confirmation_token": resp.confirmation_token,
-        "confirmation_summary": resp.confirmation_summary,
-        "suggested_next_actions": list(resp.suggested_next_actions or []),
-        "execution_refs": list(resp.execution_refs or []),
-        "confidence": resp.confidence,
-        "error": resp.error,
-        "uncertainty": resp.uncertainty,
-    }
+def _parse_json_body(headers, rfile) -> Dict[str, Any]:
+    try:
+        length = int(headers.get("Content-Length", 0) or 0)
+    except Exception:
+        length = 0
+    raw = rfile.read(length) if length > 0 and rfile is not None else b""
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw.decode("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return {"__malformed__": True}
+
+
+def _response_payload(resp: InterfaceResponse, *, session_id: Optional[str] = None) -> Dict[str, Any]:
+    payload = resp.as_dict()
+    if session_id:
+        payload["session_id"] = session_id
+    # Never leak secrets; engine already redacts, but keep boundary explicit.
+    return payload
 
 
 def handle_interface_routes(
@@ -40,82 +50,59 @@ def handle_interface_routes(
     rfile,
     send_json: Callable[..., Any],
 ) -> bool:
-    if not clean_path.startswith("/api/interface"):
+    """Return True if the path was handled."""
+    if clean_path != "/api/interface/chat":
         return False
 
-    if clean_path in ("/api/interface/health", "/api/interface") and method == "GET":
-        send_json({"ok": True, "service": "yasin-interface", "channels": ["pwa", "cli", "slack"]})
-        return True
-
-    if clean_path not in ("/api/interface/chat", "/api/interface/message"):
-        send_json({"success": False, "error": "not_found"}, status=404)
-        return True
-
     if method != "POST":
-        send_json({"success": False, "error": "method_not_allowed"}, status=405)
+        send_json({"success": False, "error": "method not allowed"}, status=405)
         return True
 
-    try:
-        length = int(headers.get("Content-Length", 0) or 0)
-    except Exception:
-        length = 0
-    raw = rfile.read(length) if length > 0 and rfile is not None else b""
-    body: dict = {}
-    if raw:
-        try:
-            data = json.loads(raw.decode("utf-8"))
-            if isinstance(data, dict):
-                body = data
-            else:
-                send_json({"success": False, "error": "malformed_json"}, status=400)
-                return True
-        except Exception:
-            send_json({"success": False, "error": "malformed_json"}, status=400)
-            return True
+    body = _parse_json_body(headers, rfile)
+    if body.get("__malformed__"):
+        send_json({"success": False, "error": "invalid json"}, status=400)
+        return True
 
     text = (body.get("text") or body.get("message") or "").strip()
     if not text:
-        send_json({"success": False, "error": "missing_text"}, status=400)
+        send_json({"success": False, "error": "text is required"}, status=400)
         return True
 
-    channel = (body.get("channel") or "pwa").strip().lower()
-    if channel not in ("pwa", "cli", "http"):
-        channel = "pwa"
+    # Client may pass a session id for continuity; we do not treat it as auth identity.
+    client_session_id = (body.get("client_session_id") or body.get("session_id") or "").strip()
+    if not client_session_id:
+        client_session_id = uuid.uuid4().hex
 
-    actor = (
-        body.get("actor")
-        or body.get("yasin_user_id")
-        or (headers.get("X-Actor") if hasattr(headers, "get") else None)
-        or "pwa-user"
-    )
-    thread_id = body.get("thread_id") or body.get("session_key") or body.get("conversation_id")
-    if not thread_id and body.get("client_session_id"):
-        thread_id = f"pwa:{body['client_session_id']}"
+    # Optional actor hint for confirmation authorization (same as text/Slack path).
+    # PWA has no Slack identity mapping; use explicit actor or anonymous.
+    actor = (body.get("actor") or body.get("yasin_user_id") or "pwa-user").strip() or "pwa-user"
+    yasin_user_id = (body.get("yasin_user_id") or actor).strip() or actor
 
     try:
-        adapter = get_channel_adapter(channel)
-        resp = adapter.handle(
-            ChannelMessage(
-                text=text,
-                channel=channel,
-                source=channel,
-                actor=str(actor),
-                yasin_user_id=str(body.get("yasin_user_id") or actor),
-                thread_id=str(thread_id) if thread_id else None,
-                channel_id=body.get("channel_id"),
-                require_mention=False,
-            )
+        adapter = get_channel_adapter("pwa")
+        message = ChannelMessage(
+            text=text,
+            channel="pwa",
+            source="pwa",
+            actor=actor,
+            yasin_user_id=yasin_user_id,
+            thread_id=client_session_id,
+            channel_id="pwa",
+            require_mention=False,
+            metadata={"client_session_id": client_session_id},
         )
-        send_json(_response_payload(resp))
-        return True
+        resp = adapter.handle(message)
+        payload = _response_payload(resp, session_id=client_session_id)
+        send_json({"success": bool(resp.success), **payload})
     except Exception as exc:
         logger.warning("interface_chat_failed error=%s", type(exc).__name__)
         send_json(
             {
                 "success": False,
-                "error": "interface_error",
-                "answer": "Yasin Interface encountered an error; Control Plane remains healthy.",
+                "error": "interface handling failed",
+                "answer": "Request could not be processed; Control Plane remains healthy.",
+                "session_id": client_session_id,
             },
             status=500,
         )
-        return True
+    return True
