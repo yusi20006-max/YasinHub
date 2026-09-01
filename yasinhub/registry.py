@@ -19,6 +19,9 @@ try:
 except ImportError:
     yaml = None
 
+# قرارداد canonical اکوسیستم YASIN: تمام repositoryها زیر ~/yasineco هستند.
+YASIN_ECOSYSTEM_ROOT = Path(os.environ.get("YASIN_ECOSYSTEM_ROOT", str(Path.home() / "yasineco"))).expanduser()
+
 # مسیر پیش‌فرض فایل پیکربندی مرکزی
 DEFAULT_CONFIG_DIR = Path(os.environ.get("YASINHUB_CONFIG_DIR", str(Path.home() / ".yasinhub")))
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.yaml"
@@ -37,7 +40,7 @@ class ProjectEntry:
 DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasinfeed",
-        path=str(Path.home() / "yasin-ecosystem" / "Yasinfeed-main"),
+        path=str(YASIN_ECOSYSTEM_ROOT / "Yasinfeed-main"),
         process_pattern="yasinfeed.py",
         description="سرویس فید خوان یاسین (YasinFeed)",
         start_command="python3 yasinfeed.py"
@@ -50,21 +53,21 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ),
     ProjectEntry(
         name="yasinrelay",
-        path=str(Path.home() / "yasin-ecosystem" / "YasinRelay-main"),
+        path=str(YASIN_ECOSYSTEM_ROOT / "YasinRelay"),
         process_pattern="yasinrelay.cli",
         description="تلگرام -> AI -> ایتا",
         start_command="python3 -m yasinrelay.cli run"
     ),
     ProjectEntry(
         name="yasin-agent",
-        path=str(Path.home() / "yasin-ecosystem" / "Yasin-agent-main"),
+        path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-agent"),
         process_pattern=None,
         description="اجرای وظایف چندمرحله‌ای (بدون پروسس دائمی)",
         start_command="python3 -m agent_platform.cli"
     ),
     ProjectEntry(
         name="yasin-ai",
-        path=str(Path.home() / "yasin-ecosystem" / "Yasin-ai-main"),
+        path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-AI"),
         process_pattern="yasin_ai.cli",
         description="موتور اصلی هوش مصنوعی یاسین",
         start_command="python3 -m yasin_ai.cli"
