@@ -61,9 +61,9 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasin-agent",
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-agent"),
-        process_pattern=None,
-        description="اجرای وظایف چندمرحله‌ای (بدون پروسس دائمی)",
-        start_command="python3 -m agent_platform.cli"
+        process_pattern="agent_platform.server",
+        description="Yasin-Agent HTTP runtime تحت کنترل YasinHub",
+        start_command=".venv/bin/python -m agent_platform.server"
     ),
     ProjectEntry(
         name="yasin-ai",
