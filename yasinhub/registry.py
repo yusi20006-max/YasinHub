@@ -62,7 +62,7 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         name="yasin-agent",
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-agent"),
         process_pattern="agent_platform.server",
-        description="Yasin-Agent HTTP runtime تحت کنترل YasinHub",
+        description="Yasin-Agent HTTP runtime (production: supervised by runit/termux-services)",
         start_command=".venv/bin/python -m agent_platform.server"
     ),
     ProjectEntry(
