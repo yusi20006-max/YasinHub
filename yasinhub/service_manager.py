@@ -54,6 +54,23 @@ def _service_env(project: ProjectEntry) -> dict[str, str]:
     return env
 
 
+def _mark_running(project_name: str) -> None:
+    """Reconcile the persisted service status after Hub observes a live process."""
+    try:
+        from .config_manager import get_status_dir
+        from .status_store import write_status
+
+        write_status(
+            project_name,
+            success=True,
+            message="observed running",
+            status_dir=get_status_dir(),
+        )
+    except Exception:
+        # Status persistence must never make a successfully started service fail.
+        pass
+
+
 def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
     """
     توقف یک پروسس به صورت امن و تضمینی. ابتدا ارسال SIGTERM و در صورت عدم توقف پس از timeout، ارسال SIGKILL.
@@ -110,6 +127,7 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
     if saved_pid:
         if _is_pid_alive(saved_pid):
             print(f"سرویس {project.name} از قبل با شناسه {saved_pid} در حال اجراست.")
+            _mark_running(project.name)
             return True
         print(f"شناسایی کرش در سرویس {project.name}: فایل PID قدیمی {saved_pid} نامعتبر بود. پاک‌سازی انجام می‌شود.")
         remove_pid(project.name)
@@ -129,6 +147,7 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
                     save_pid(project.name, int(status.pids[0]))
                 except ValueError:
                     pass
+            _mark_running(project.name)
             return True
 
     if project.path:
@@ -182,6 +201,7 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
                 pass
             return False
 
+        _mark_running(project.name)
         print(f"سرویس {project.name} با موفقیت در پس‌زمینه استارت شد.")
         log_file.close()
         return True

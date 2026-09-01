@@ -68,9 +68,10 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasin-ai",
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-AI"),
-        process_pattern="yasin_ai.cli",
+        # Yasin-AI's production supervisor loop is the long-running `serve` command.
+        process_pattern="yasinai.cli.main serve",
         description="موتور اصلی هوش مصنوعی یاسین",
-        start_command="python3 -m yasin_ai.cli"
+        start_command="yasin serve"
     ),
     ProjectEntry(
         name="yasin-coder",

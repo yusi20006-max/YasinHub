@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from .process_checker import check_process
 from .registry import ProjectEntry, default_registry
-from .status_store import DEFAULT_STATUS_DIR, StatusRecord, read_status
+from .status_store import StatusRecord, read_status
 from .pid_store import read_pid, is_pid_alive, remove_pid, save_pid
 
 
@@ -21,7 +21,7 @@ from .pid_store import read_pid, is_pid_alive, remove_pid, save_pid
 class ProjectReport:
     name: str
     description: str
-    process_running: Optional[bool]  # None یعنی پروژه پروسس دائمی ندارد
+    process_running: Optional[bool]
     last_run: Optional[str]
     last_success: Optional[bool]
     last_message: str
@@ -43,7 +43,6 @@ class ProjectReport:
                 self.last_run,
                 self.last_success,
             )
-
 
 
 def calculate_health_state(
@@ -80,8 +79,18 @@ def calculate_health_state(
 
 def build_report(
     projects: Optional[List[ProjectEntry]] = None,
-    status_dir: Path = DEFAULT_STATUS_DIR,
+    status_dir: Optional[Path] = None,
 ) -> List[ProjectReport]:
+    """Build service reports using the current configured status directory.
+
+    A live process is authoritative over stale persisted failure state. This is
+    important for long-running services such as Yasin-AI, which can be started
+    successfully while an older failed status record is still present.
+    """
+    if status_dir is None:
+        from .config_manager import get_status_dir
+        status_dir = get_status_dir()
+
     projects = projects if projects is not None else default_registry()
     reports: List[ProjectReport] = []
 
@@ -110,13 +119,12 @@ def build_report(
                     except Exception:
                         pass
             else:
-                if project.process_pattern:
-                    process_running = False
+                process_running = False
 
         status: Optional[StatusRecord] = read_status(project.name, status_dir=status_dir)
 
-        # Live process is authoritative. A stale FAILED last_run must not
-        # present a currently running (e.g. runit-supervised) service as failed.
+        # A live process is authoritative. Reconcile any stale FAILED record so
+        # CLI, API and PWA all expose the same current state.
         if process_running is True and status is not None and status.success is False:
             try:
                 from .status_store import write_status
