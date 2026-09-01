@@ -77,8 +77,11 @@ tail -f ~/.yasinhub/logs/yasin-agent/current
 
 ## Health / ready contract (must stay authenticated)
 
+Unauthenticated requests to `/v1/health` and `/v1/ready` must return **401**.
+
 ```bash
 TOKEN=$(tr -d '\n\r' < ~/.yasinhub/yasin-agent.token)
+# expect 401 without Authorization
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/v1/health
 curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/v1/health
 curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/v1/ready
