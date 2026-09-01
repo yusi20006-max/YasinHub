@@ -1,38 +1,52 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # runit/termux-services supervised entry for Yasin-Agent HTTP runtime.
 # Canonical layout: ~/yasineco/Yasin-agent
-# Supervisor must own this process; do not start a second instance via YasinHub CLI.
+# Supervisor owns this process; YasinHub must not spawn a second instance.
 set -euo pipefail
 
-# Prefer Termux PREFIX when present; fall back for local CI/Linux.
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 export PATH="${PREFIX}/bin:${PATH:-}"
 
 AGENT_ROOT="${YASIN_AGENT_ROOT:-${HOME}/yasineco/Yasin-agent}"
 cd "${AGENT_ROOT}"
 
-# Shared service-token contract (never echo the value).
+# Canonical shared-token contract: file ALWAYS wins over stale environment.
+# Never echo the token value.
 TOKEN_FILE="${HOME}/.yasinhub/yasin-agent.token"
-if [ -z "${YASIN_AGENT_SERVICE_TOKEN:-}" ] && [ -f "${TOKEN_FILE}" ]; then
+if [ -f "${TOKEN_FILE}" ]; then
   # shellcheck disable=SC2002
-  export YASIN_AGENT_SERVICE_TOKEN="$(cat "${TOKEN_FILE}" | tr -d '\n\r')"
+  FILE_TOKEN="$(cat "${TOKEN_FILE}" | tr -d '\n\r')"
+  if [ -n "${FILE_TOKEN}" ]; then
+    export YASIN_AGENT_SERVICE_TOKEN="${FILE_TOKEN}"
+  fi
 fi
 if [ -z "${YASIN_AGENT_SERVICE_TOKEN:-}" ]; then
-  echo "yasin-agent run: YASIN_AGENT_SERVICE_TOKEN not set and ${TOKEN_FILE} missing" >&2
+  echo "yasin-agent run: token missing (expected ${TOKEN_FILE})" >&2
   exit 1
 fi
 
 export YASIN_AGENT_HOST="${YASIN_AGENT_HOST:-127.0.0.1}"
 export YASIN_AGENT_PORT="${YASIN_AGENT_PORT:-8080}"
 
-# Prefer project venv; fall back to system python if venv absent (CI/dev).
+# Refuse to start a second listener if something already holds the port.
+if command -v ss >/dev/null 2>&1; then
+  if ss -ltn 2>/dev/null | grep -qE ":${YASIN_AGENT_PORT}\b"; then
+    echo "yasin-agent run: port ${YASIN_AGENT_PORT} already in use \u2014 refuse duplicate start" >&2
+    exit 1
+  fi
+elif command -v netstat >/dev/null 2>&1; then
+  if netstat -ltn 2>/dev/null | grep -qE ":${YASIN_AGENT_PORT}\b"; then
+    echo "yasin-agent run: port ${YASIN_AGENT_PORT} already in use \u2014 refuse duplicate start" >&2
+    exit 1
+  fi
+fi
+
 if [ -x "${AGENT_ROOT}/.venv/bin/python" ]; then
   PYTHON="${AGENT_ROOT}/.venv/bin/python"
 else
   PYTHON="${PREFIX}/bin/python3"
 fi
 
-# Ensure PYTHONPATH includes the agent root for -m agent_platform.server
 export PYTHONPATH="${AGENT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 exec "${PYTHON}" -m agent_platform.server

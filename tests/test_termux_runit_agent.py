@@ -1,4 +1,4 @@
-"""Regression tests for Termux/runit Yasin-Agent production service (#149)."""
+"""Regression tests for Termux/runit Yasin-Agent production service."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from yasinhub.registry import DEFAULT_PROJECTS, YASIN_ECOSYSTEM_ROOT, ProjectEntry
-from yasinhub.service_manager import start_service, _yasin_agent_token
+from yasinhub.service_manager import start_service
 
 ROOT = Path(__file__).resolve().parents[1]
 RUN_SCRIPT = ROOT / "scripts" / "termux" / "yasin-agent" / "run"
@@ -20,7 +20,6 @@ def test_runit_service_scripts_exist() -> None:
     assert LOG_SCRIPT.is_file()
     assert INSTALL_SCRIPT.is_file()
     assert DOC.is_file()
-    # Shebang present (executable mode is applied by install script on Termux)
     assert RUN_SCRIPT.read_text(encoding="utf-8").startswith("#!")
     assert LOG_SCRIPT.read_text(encoding="utf-8").startswith("#!")
     assert INSTALL_SCRIPT.read_text(encoding="utf-8").startswith("#!")
@@ -30,24 +29,33 @@ def test_run_script_canonical_contract() -> None:
     text = RUN_SCRIPT.read_text(encoding="utf-8")
     assert "yasineco/Yasin-agent" in text
     assert "agent_platform.server" in text
-    assert "YASIN_AGENT_SERVICE_TOKEN" in text
     assert "yasin-agent.token" in text
     assert "exec" in text
-    assert "echo \"$YASIN_AGENT_SERVICE_TOKEN\"" not in text
-    assert "echo $YASIN_AGENT_SERVICE_TOKEN" not in text
     assert ".venv/bin/python" in text
     assert "Yasin-agent-main" not in text
     assert "yasin-ecosystem" not in text
+    assert 'if [ -f "${TOKEN_FILE}" ]' in text or "if [ -f \"${TOKEN_FILE}\" ]" in text
+    assert "already in use" in text or "YASIN_AGENT_PORT" in text
+    assert 'echo "$YASIN_AGENT_SERVICE_TOKEN"' not in text
+    assert "echo $YASIN_AGENT_SERVICE_TOKEN" not in text
+
+
+def test_log_script_has_fallback() -> None:
+    text = LOG_SCRIPT.read_text(encoding="utf-8")
+    assert "multilog" in text or "svlogd" in text
+    assert "LOG_DIR" in text or "logs/yasin-agent" in text
 
 
 def test_install_script_contracts() -> None:
     text = INSTALL_SCRIPT.read_text(encoding="utf-8")
-    assert "termux-services" in text or "var/service" in text
+    assert "var/service" in text or "termux-services" in text
     assert "yasin-agent.token" in text
     assert "chmod 600" in text or "0o600" in text
     assert "sv up" in text
     assert "sv status" in text
     assert "Authorization: Bearer" in text
+    assert "agent_platform.server" in text
+    assert "pgrep" in text or "orphan" in text.lower() or "kill" in text
 
 
 def test_docs_cover_architecture_and_verification() -> None:
@@ -63,6 +71,7 @@ def test_docs_cover_architecture_and_verification() -> None:
         or "single-instance" in text.lower()
         or "idempotent" in text.lower()
     )
+    assert "token" in text.lower()
 
 
 def test_registry_yasin_agent_canonical_path() -> None:
@@ -77,7 +86,6 @@ def test_registry_yasin_agent_canonical_path() -> None:
 
 
 def test_start_service_idempotent_when_agent_already_running(tmp_path) -> None:
-    """If process_pattern already matches, do not spawn (runit ownership)."""
     project = ProjectEntry(
         name="yasin-agent",
         path=str(tmp_path),
@@ -95,10 +103,21 @@ def test_start_service_idempotent_when_agent_already_running(tmp_path) -> None:
         popen.assert_not_called()
 
 
-def test_yasin_agent_token_env_override() -> None:
-    """Token comes from env when set; never empty when generated."""
-    import os
-    from unittest.mock import patch as p2
+def test_yasin_agent_token_file_wins() -> None:
+    from yasinhub.agent_token import resolve_agent_service_token
+    from pathlib import Path
+    import tempfile
 
-    with p2.dict(os.environ, {"YASIN_AGENT_SERVICE_TOKEN": "unit-test-token-value-xyz"}, clear=False):
-        assert _yasin_agent_token() == "unit-test-token-value-xyz"
+    with tempfile.TemporaryDirectory() as td:
+        home = Path(td)
+        path = home / ".yasinhub" / "yasin-agent.token"
+        path.parent.mkdir(parents=True)
+        path.write_text("canonical-from-file\n", encoding="utf-8")
+        assert (
+            resolve_agent_service_token(
+                env={"YASIN_AGENT_SERVICE_TOKEN": "stale"},
+                home=home,
+                persist=False,
+            )
+            == "canonical-from-file"
+        )

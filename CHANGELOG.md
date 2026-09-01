@@ -12,4 +12,15 @@
 
 ## Unreleased
 
+- Hardening after #149: canonical token file wins over stale env; runit orphan
+  reconciliation; portable logger fallback; Hub HTTP token file fallback
+  (`yasinhub.agent_token`)
+
+- #149: Production Termux/runit supervision for Yasin-Agent
+  - scripts/termux/yasin-agent run + log scripts
+  - install_yasin_agent_service.sh
+  - docs/TERMUX_RUNIT_YASIN_AGENT.md
+  - idempotent start when agent already supervised
+  - regression tests for canonical path, token contract, single-instance
+
 - Documentation and release-readiness cleanup

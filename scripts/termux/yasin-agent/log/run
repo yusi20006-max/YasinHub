@@ -1,8 +1,18 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# Multilog for yasin-agent under termux-services/runit.
+# Logger for yasin-agent under termux-services/runit.
+# Prefer multilog/svlogd; fall back to line-oriented append so supervise/ok works.
 set -euo pipefail
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 export PATH="${PREFIX}/bin:${PATH:-}"
 LOG_DIR="${HOME}/.yasinhub/logs/yasin-agent"
 mkdir -p "${LOG_DIR}"
-exec multilog t s1048576 n10 "${LOG_DIR}"
+
+if command -v multilog >/dev/null 2>&1; then
+  exec multilog t s1048576 n10 "${LOG_DIR}"
+fi
+if command -v svlogd >/dev/null 2>&1; then
+  exec svlogd -tt "${LOG_DIR}"
+fi
+
+# Minimal portable logger (no multilog/svlogd): keep supervise happy.
+exec sh -c "exec cat >> \"${LOG_DIR}/current\""
