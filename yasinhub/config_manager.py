@@ -139,7 +139,6 @@ class ConfigManager:
 
     def get_status_dir(self) -> Path:
         """دریافت دایرکتوری وضعیت‌ها"""
-        # بسط دادن ~ در مسیر در صورت وجود
         path_str = self._config.get("status_dir") or str(Path.home() / ".yasin_status")
         return Path(os.path.expanduser(path_str))
 
@@ -147,6 +146,39 @@ class ConfigManager:
         """دریافت دایرکتوری لاگ‌ها"""
         path_str = self._config.get("logs_dir") or str(Path.home() / ".yasinhub" / "logs")
         return Path(os.path.expanduser(path_str))
+
+    @staticmethod
+    def _canonical_project_path(path: Optional[str]) -> Optional[str]:
+        """Resolve legacy ecosystem paths against the canonical ~/yasineco root.
+
+        Existing user configuration may still contain the former ~/yasin-ecosystem
+        root or legacy *-main directory names. Runtime resolution honors the
+        ecosystem path contract without requiring manual edits to ~/.yasinhub/config.yaml.
+        """
+        if not path:
+            return path
+
+        from .registry import YASIN_ECOSYSTEM_ROOT
+
+        expanded = Path(os.path.expanduser(path))
+        parts = expanded.parts
+        legacy_marker = "yasin-ecosystem"
+        if legacy_marker in parts:
+            idx = parts.index(legacy_marker)
+            relative_parts = parts[idx + 1 :]
+            candidate = YASIN_ECOSYSTEM_ROOT.joinpath(*relative_parts)
+        else:
+            candidate = expanded
+
+        if candidate.exists():
+            return str(candidate)
+
+        if candidate.name.endswith("-main"):
+            canonical = candidate.with_name(candidate.name[:-5])
+            if canonical.exists():
+                return str(canonical)
+
+        return str(candidate)
 
     def get_projects(self) -> List[ProjectConfig]:
         """دریافت پروژه‌ها به صورت کلاس دیتا"""
@@ -156,7 +188,7 @@ class ConfigManager:
             projects_list.append(
                 ProjectEntry(
                     name=item["name"],
-                    path=item.get("path"),
+                    path=self._canonical_project_path(item.get("path")),
                     process_pattern=item.get("process_pattern"),
                     description=item.get("description", ""),
                     start_command=item.get("start_command"),
