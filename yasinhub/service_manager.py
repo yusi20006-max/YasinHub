@@ -6,7 +6,6 @@ service_manager.py
 from __future__ import annotations
 
 import os
-import secrets
 import shlex
 import signal
 import subprocess
@@ -37,26 +36,10 @@ def _is_pid_alive(pid: int) -> bool:
 
 
 def _yasin_agent_token() -> str:
-    """Return the local Yasin-Agent service token, creating it once when needed."""
-    configured = os.environ.get("YASIN_AGENT_SERVICE_TOKEN", "").strip()
-    if configured:
-        return configured
+    """Return the local Yasin-Agent service token (canonical file wins over env)."""
+    from .agent_token import resolve_agent_service_token
 
-    token_path = Path.home() / ".yasinhub" / "yasin-agent.token"
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        token = token_path.read_text(encoding="utf-8").strip()
-    except OSError:
-        token = ""
-
-    if not token:
-        token = secrets.token_urlsafe(32)
-        token_path.write_text(token + "\n", encoding="utf-8")
-        try:
-            token_path.chmod(0o600)
-        except OSError:
-            pass
-    return token
+    return resolve_agent_service_token()
 
 
 def _service_env(project: ProjectEntry) -> dict[str, str]:
@@ -134,7 +117,13 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
     if project.process_pattern:
         status = check_process(project.process_pattern)
         if status.running:
-            print(f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}).")
+            if project.name == "yasin-agent":
+                print(
+                    f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}). "
+                    "Ownership با runit/termux-services است؛ از spawn مجدد خودداری شد."
+                )
+            else:
+                print(f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}).")
             if status.pids:
                 try:
                     save_pid(project.name, int(status.pids[0]))
