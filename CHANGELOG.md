@@ -12,6 +12,8 @@
 
 ## Unreleased
 
+- #153: live/supervised process is authoritative over stale FAILED status_store records
+
 - Hardening after #149: canonical token file wins over stale env; runit orphan
   reconciliation; portable logger fallback; Hub HTTP token file fallback
   (`yasinhub.agent_token`)
