@@ -2,7 +2,7 @@
 HTTP transport for Agent \u2194 Hub integration (#59).
 
 Hub acts as an authenticated HTTP client against a remote Agent runtime.
-Credentials come from environment only \u2014 never embedded in source or frontend.
+Credentials come from the canonical token file / environment \u2014 never embedded in source.
 Transport is replaceable; Observer routes stay transport-agnostic.
 """
 
@@ -71,6 +71,15 @@ class HttpTransportConfig:
         e = env if env is not None else os.environ
         base = (e.get("YASINHUB_AGENT_BASE_URL") or "").strip().rstrip("/")
         token = (e.get("YASINHUB_AGENT_SERVICE_TOKEN") or "").strip()
+        # Canonical token file wins so Hub matches runit-supervised Agent.
+        try:
+            from yasinhub.agent_token import resolve_agent_service_token
+
+            file_token = resolve_agent_service_token(env=e, persist=False)
+            if file_token:
+                token = file_token
+        except Exception:
+            pass
         if not base or not token:
             return None
         timeout = float(e.get("YASINHUB_AGENT_TIMEOUT", "10") or "10")
