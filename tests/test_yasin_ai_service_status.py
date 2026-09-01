@@ -1,13 +1,13 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from yasinhub.registry import ProjectEntry, default_registry
+from yasinhub.registry import DEFAULT_PROJECTS, ProjectEntry
 from yasinhub.report import build_report
 from yasinhub.service_manager import start_service
 
 
 def test_yasin_ai_registry_uses_long_running_canonical_command():
-    project = next(p for p in default_registry() if p.name == "yasin-ai")
+    project = next(p for p in DEFAULT_PROJECTS if p.name == "yasin-ai")
 
     assert project.path == str(Path.home() / "yasineco" / "Yasin-AI")
     assert project.process_pattern == "yasinai.cli.main serve"
