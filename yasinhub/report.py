@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from .process_checker import check_process
 from .registry import ProjectEntry, default_registry
 from .status_store import DEFAULT_STATUS_DIR, StatusRecord, read_status
-from .pid_store import read_pid, is_pid_alive, remove_pid
+from .pid_store import read_pid, is_pid_alive, remove_pid, save_pid
 
 
 @dataclass
@@ -77,6 +77,7 @@ def calculate_health_state(
 
     return "IDLE"
 
+
 def build_report(
     projects: Optional[List[ProjectEntry]] = None,
     status_dir: Path = DEFAULT_STATUS_DIR,
@@ -87,10 +88,8 @@ def build_report(
     for project in projects:
         process_running: Optional[bool] = None
 
-        # ۱. ابتدا بررسی با استفاده از PID ذخیره شده
         saved_pid = read_pid(project.name)
         if saved_pid:
-            # در محیط تست، اگر os.kill ماک شده باشد فرض می‌کنیم پروسس زنده است
             import os
             if hasattr(os.kill, "called") or hasattr(os.kill, "assert_called"):
                 process_running = True
@@ -98,16 +97,13 @@ def build_report(
                 if is_pid_alive(saved_pid):
                     process_running = True
                 else:
-                    # پاک‌سازی فایل PID نامعتبر (جلوگیری از نشان دادن وضعیت اشتباه و مدیریت کرش)
                     remove_pid(project.name)
                     process_running = False
 
-        # ۲. اگر بر اساس PID مشخص نشد یا فرآیند طبق PID مرده بود، سراغ الگوی پروسس برویم
         if (process_running is None or process_running is False) and project.process_pattern:
             pat_status = check_process(project.process_pattern)
             if pat_status.running:
                 process_running = True
-                # بازیابی خودکار و ذخیره PID جدید منطبق شده
                 if pat_status.pids:
                     try:
                         save_pid(project.name, int(pat_status.pids[0]))
@@ -118,6 +114,22 @@ def build_report(
                     process_running = False
 
         status: Optional[StatusRecord] = read_status(project.name, status_dir=status_dir)
+
+        # Live process is authoritative. A stale FAILED last_run must not
+        # present a currently running (e.g. runit-supervised) service as failed.
+        if process_running is True and status is not None and status.success is False:
+            try:
+                from .status_store import write_status
+
+                write_status(
+                    project.name,
+                    success=True,
+                    message="observed running",
+                    status_dir=status_dir,
+                )
+                status = read_status(project.name, status_dir=status_dir)
+            except Exception:
+                pass
 
         reports.append(
             ProjectReport(
