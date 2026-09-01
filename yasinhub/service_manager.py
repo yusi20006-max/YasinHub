@@ -6,6 +6,7 @@ service_manager.py
 from __future__ import annotations
 
 import os
+import secrets
 import shlex
 import signal
 import subprocess
@@ -33,6 +34,41 @@ def _is_pid_alive(pid: int) -> bool:
     if hasattr(os.kill, "called") or hasattr(os.kill, "assert_called"):
         return True
     return is_pid_alive(pid)
+
+
+def _yasin_agent_token() -> str:
+    """Return the local Yasin-Agent service token, creating it once when needed."""
+    configured = os.environ.get("YASIN_AGENT_SERVICE_TOKEN", "").strip()
+    if configured:
+        return configured
+
+    token_path = Path.home() / ".yasinhub" / "yasin-agent.token"
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        token = token_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        token = ""
+
+    if not token:
+        token = secrets.token_urlsafe(32)
+        token_path.write_text(token + "\n", encoding="utf-8")
+        try:
+            token_path.chmod(0o600)
+        except OSError:
+            pass
+    return token
+
+
+def _service_env(project: ProjectEntry) -> dict[str, str]:
+    """Build the child environment, including Yasin-Agent's local auth contract."""
+    env = os.environ.copy()
+    if project.path:
+        env["PYTHONPATH"] = str(project.path) + ":" + env.get("PYTHONPATH", "")
+    if project.name == "yasin-agent":
+        env.setdefault("YASIN_AGENT_HOST", "127.0.0.1")
+        env.setdefault("YASIN_AGENT_PORT", "8080")
+        env["YASIN_AGENT_SERVICE_TOKEN"] = _yasin_agent_token()
+    return env
 
 
 def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
@@ -133,10 +169,7 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
         return False
 
     try:
-        env = os.environ.copy()
-        if project.path:
-            env["PYTHONPATH"] = str(project.path) + ":" + env.get("PYTHONPATH", "")
-
+        env = _service_env(project)
         proc = subprocess.Popen(
             _command_argv(project.start_command),
             shell=False,
