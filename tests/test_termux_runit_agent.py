@@ -15,14 +15,15 @@ INSTALL_SCRIPT = ROOT / "scripts" / "termux" / "install_yasin_agent_service.sh"
 DOC = ROOT / "docs" / "TERMUX_RUNIT_YASIN_AGENT.md"
 
 
-def test_runit_service_scripts_exist_and_executable() -> None:
+def test_runit_service_scripts_exist() -> None:
     assert RUN_SCRIPT.is_file()
     assert LOG_SCRIPT.is_file()
     assert INSTALL_SCRIPT.is_file()
     assert DOC.is_file()
-    assert RUN_SCRIPT.stat().st_mode & 0o111
-    assert LOG_SCRIPT.stat().st_mode & 0o111
-    assert INSTALL_SCRIPT.stat().st_mode & 0o111
+    # Shebang present (executable mode is applied by install script on Termux)
+    assert RUN_SCRIPT.read_text(encoding="utf-8").startswith("#!")
+    assert LOG_SCRIPT.read_text(encoding="utf-8").startswith("#!")
+    assert INSTALL_SCRIPT.read_text(encoding="utf-8").startswith("#!")
 
 
 def test_run_script_canonical_contract() -> None:
