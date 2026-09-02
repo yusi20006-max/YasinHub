@@ -71,15 +71,17 @@ class HttpTransportConfig:
         e = env if env is not None else os.environ
         base = (e.get("YASINHUB_AGENT_BASE_URL") or "").strip().rstrip("/")
         token = (e.get("YASINHUB_AGENT_SERVICE_TOKEN") or "").strip()
-        # Canonical token file wins so Hub matches runit-supervised Agent.
-        try:
-            from yasinhub.agent_token import resolve_agent_service_token
-
-            file_token = resolve_agent_service_token(env=e, persist=False)
-            if file_token:
-                token = file_token
-        except Exception:
-            pass
+        # Explicit env mappings are authoritative for callers/tests that pass
+        # configuration directly. For process environment, resolve the
+        # canonical shared token so Hub matches the runit-supervised Agent.
+        if env is None:
+            try:
+                from yasinhub.agent_token import resolve_agent_service_token
+                file_token = resolve_agent_service_token(env=e, persist=False)
+                if file_token:
+                    token = file_token
+            except Exception:
+                pass
         if not base or not token:
             return None
         timeout = float(e.get("YASINHUB_AGENT_TIMEOUT", "10") or "10")
