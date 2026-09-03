@@ -138,41 +138,71 @@ def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
 
 
 def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
-    """شروع یک سرویس در پس‌زمینه با ثبت PID."""
+    """شروع اجرای یک سرویس در پس‌زمینه."""
     if not project.start_command:
-        print(f"سرویس {project.name} دستور شروع ندارد.")
+        print(f"خطا: دستور شروع برای سرویس {project.name} تعریف نشده است.")
         return False
 
-    # اگر از قبل در حال اجرا است، دوباره شروع نکن
-    saved = read_pid(project.name)
-    if saved and _is_pid_alive(saved):
-        print(f"سرویس {project.name} از قبل در حال اجرا است (PID={saved}).")
-        _mark_running(project.name)
-        return True
+    saved_pid = read_pid(project.name)
+    if saved_pid:
+        if _is_pid_alive(saved_pid):
+            print(f"سرویس {project.name} از قبل با شناسه {saved_pid} در حال اجراست.")
+            _mark_running(project.name)
+            return True
+        print(f"شناسایی کرش در سرویس {project.name}: فایل PID قدیمی {saved_pid} نامعتبر بود. پاک‌سازی انجام می‌شود.")
+        remove_pid(project.name)
 
     if project.process_pattern:
         status = check_process(project.process_pattern)
         if status.running:
-            print(f"سرویس {project.name} از قبل در حال اجرا است (pattern match).")
+            if project.name == "yasin-agent":
+                print(
+                    f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}). "
+                    "Ownership با runit/termux-services است؛ از spawn مجدد خودداری شد."
+                )
+            else:
+                print(f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}).")
             if status.pids:
                 try:
                     save_pid(project.name, int(status.pids[0]))
-                except Exception:
+                except ValueError:
                     pass
             _mark_running(project.name)
             return True
 
-    logs = logs_dir or DEFAULT_LOGS_DIR
-    logs.mkdir(parents=True, exist_ok=True)
-    log_path = logs / f"{project.name}.log"
-    log_file = open(log_path, "a", encoding="utf-8")
+    if project.path:
+        p_path = Path(project.path)
+        if not p_path.exists():
+            print(f"خطا: مسیر تعریف شده برای سرویس {project.name} وجود ندارد: {project.path}")
+            try:
+                from .status_store import write_status
+                write_status(project.name, success=False, message=f"خطا: دایرکتوری سرویس یافت نشد: {project.path}")
+            except Exception:
+                pass
+            return False
+
+    if logs_dir is None:
+        from .config_manager import get_logs_dir
+        l_dir = get_logs_dir()
+    else:
+        l_dir = logs_dir
+
+    l_dir.mkdir(parents=True, exist_ok=True)
+    log_file_path = l_dir / f"{project.name}.log"
 
     try:
-        cwd = project.path if project.path and Path(project.path).is_dir() else None
+        log_file = open(log_file_path, "a", encoding="utf-8")
+    except Exception as e:
+        print(f"خطا در ایجاد فایل لاگ برای {project.name}: {e}")
+        return False
+
+    try:
+        env = _service_env(project)
         proc = subprocess.Popen(
             _command_argv(project.start_command),
-            cwd=cwd,
-            env=_service_env(project),
+            shell=False,
+            cwd=project.path if project.path else None,
+            env=env,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,
