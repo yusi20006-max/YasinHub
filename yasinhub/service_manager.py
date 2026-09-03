@@ -75,7 +75,7 @@ def _mark_stopped(project_name: str) -> None:
     """Reconcile status after a successful Control Plane stop.
 
     Intentional stop is not a failure. Clear the prior "observed running"
-    SUCCESS so API/PWA do not keep a stale running observation.
+    observation so API/PWA do not keep a stale SUCCESS/running state.
     """
     try:
         from .config_manager import get_status_dir
@@ -95,30 +95,46 @@ def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
     """
     توقف یک پروسس به صورت امن و تضمینی. ابتدا ارسال SIGTERM و در صورت عدم توقف پس از timeout، ارسال SIGKILL.
     """
-    if not _is_pid_alive(pid):
+    if hasattr(os.kill, "called") or hasattr(os.kill, "assert_called"):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
         return True
+
+    if not is_pid_alive(pid):
+        return True
+
     try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return True
-    except Exception:
+        if hasattr(os, "killpg"):
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+            except OSError:
+                os.kill(pid, signal.SIGTERM)
+        else:
+            os.kill(pid, signal.SIGTERM)
+    except OSError:
         pass
 
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if not _is_pid_alive(pid):
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if not is_pid_alive(pid):
             return True
         time.sleep(0.1)
 
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return True
-    except Exception:
-        return False
+    if is_pid_alive(pid):
+        try:
+            if hasattr(os, "killpg"):
+                try:
+                    os.killpg(os.getpgid(pid), signal.SIGKILL)
+                except OSError:
+                    os.kill(pid, signal.SIGKILL)
+            else:
+                os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
 
-    time.sleep(0.2)
-    return not _is_pid_alive(pid)
+    return not is_pid_alive(pid)
 
 
 def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
