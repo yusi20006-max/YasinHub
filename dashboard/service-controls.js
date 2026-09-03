@@ -33,8 +33,9 @@ function buttonHtml(service,action){
   return `<button type="button" class="service-action ${danger?"service-action-danger":"service-action-primary"}" data-service-action="${action}" data-service="${escapeAttr(service)}"${confirm}>${LABELS[action]}</button>`;
 }
 function buildControls(service,status){
-  const actions=ACTIONS.filter(a=>allowed(a,status));
-  return `<div class="service-controls" data-service-controls="${escapeAttr(service)}" data-service-status="${escapeAttr(status)}">${actions.map(a=>buttonHtml(service,a)).join("")}<span class="service-feedback" role="status" aria-live="polite"></span></div>`;
+  const normalized=normalizeStatus(status);
+  const actions=ACTIONS.filter(a=>allowed(a,normalized));
+  return `<div class="service-controls" data-service-controls="${escapeAttr(service)}" data-service-status="${normalized}">${actions.map(a=>buttonHtml(service,a)).join("")}<span class="service-feedback" role="status" aria-live="polite"></span></div>`;
 }
 async function callLifecycle(service,action){
   try{
@@ -74,11 +75,17 @@ function decorateServices(){
   table.querySelectorAll("tbody tr").forEach(row=>{
     const service=row.querySelector('td[data-label="Service"] strong')?.textContent?.trim();
     if(!service)return;
+    const status=getRowStatus(row);
+    const normalized=normalizeStatus(status);
     const existing=row.querySelector("[data-service-controls]");
+    // MutationObserver watches the table. Do not rewrite an unchanged control cell,
+    // otherwise our own DOM updates would create an infinite mutation loop.
     if(existing){
-      const status=getRowStatus(row);existing.outerHTML=buildControls(service,status);return;
+      if(existing.getAttribute("data-service-status")===normalized)return;
+      existing.outerHTML=buildControls(service,normalized);
+      return;
     }
-    const td=document.createElement("td");td.dataset.label="کنترل";td.innerHTML=buildControls(service,getRowStatus(row));row.appendChild(td);
+    const td=document.createElement("td");td.dataset.label="کنترل";td.innerHTML=buildControls(service,normalized);row.appendChild(td);
   });
 }
 function injectGlassTheme(){
