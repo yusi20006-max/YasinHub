@@ -40,6 +40,11 @@ yasin-agent    پروسس: —            آخرین اجرا: بدون گزار
 python3 -m pytest tests/ -v
 ```
 
+## سازگاری با Termux / Android ARM64
+
+Termux روی Android ARM64 (Android 11+ / API 30+ / Python 3.9–3.14.x) به عنوان هدف اصلی (First-class Target) پشتیبانی می‌شود.
+برای جزئیات بیشتر به [مستند سازگاری Termux](docs/TERMUX_COMPATIBILITY.md) مراجعه کنید.
+
 ## ساختار
 
 ```
