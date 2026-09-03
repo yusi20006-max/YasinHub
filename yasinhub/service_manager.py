@@ -71,6 +71,26 @@ def _mark_running(project_name: str) -> None:
         pass
 
 
+def _mark_stopped(project_name: str) -> None:
+    """Reconcile status after a successful Control Plane stop.
+
+    Intentional stop is not a failure. Clear the prior "observed running"
+    observation so API/PWA do not keep a stale SUCCESS/running state.
+    """
+    try:
+        from .config_manager import get_status_dir
+        from .status_store import write_status
+
+        write_status(
+            project_name,
+            success=True,
+            message="stopped",
+            status_dir=get_status_dir(),
+        )
+    except Exception:
+        pass
+
+
 def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
     """
     توقف یک پروسس به صورت امن و تضمینی. ابتدا ارسال SIGTERM و در صورت عدم توقف پس از timeout، ارسال SIGKILL.
@@ -227,6 +247,7 @@ def stop_service(project: ProjectEntry) -> bool:
         remove_pid(project.name)
         if stopped:
             print(f"سرویس {project.name} با شناسه {saved_pid} با موفقیت متوقف شد.")
+            _mark_stopped(project.name)
             return True
 
     if project.stop_command:
@@ -245,6 +266,10 @@ def stop_service(project: ProjectEntry) -> bool:
                         stopped = True
                 except Exception:
                     pass
+
+    if stopped:
+        remove_pid(project.name)
+        _mark_stopped(project.name)
 
     return stopped
 
