@@ -45,7 +45,7 @@ def test_app_uses_status_endpoint_for_services():
 def test_shell_preserves_routes_and_chrome():
  html=_read(DASHBOARD/"index.html")
  for nav in ("overview","executions","fleets","events"): assert f'data-nav="{nav}"' in html
- for token in ("connection-status","stale-indicator","theme-toggle","nav-toggle","skip-link","id=\"content\"","lang=\"fa\"","dir=\"rtl\"","style.css?v=2","service-controls.js?v=2"): assert token in html
+ for token in ("connection-status","stale-indicator","theme-toggle","nav-toggle","skip-link","id=\"content\"","lang=\"fa\"","dir=\"rtl\"","style.css?v=2","service-controls.js?v=3"): assert token in html
 
 def test_models_status_class_maps_health_states():
  models=_read(JS/"models.js")
