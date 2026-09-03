@@ -71,118 +71,92 @@ def _mark_running(project_name: str) -> None:
         pass
 
 
+def _mark_stopped(project_name: str) -> None:
+    """Reconcile status after a successful Control Plane stop.
+
+    Intentional stop is not a failure. Clear the prior "observed running"
+    SUCCESS so API/PWA do not keep a stale running observation.
+    """
+    try:
+        from .config_manager import get_status_dir
+        from .status_store import write_status
+
+        write_status(
+            project_name,
+            success=True,
+            message="stopped",
+            status_dir=get_status_dir(),
+        )
+    except Exception:
+        pass
+
+
 def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
     """
     توقف یک پروسس به صورت امن و تضمینی. ابتدا ارسال SIGTERM و در صورت عدم توقف پس از timeout، ارسال SIGKILL.
     """
-    if hasattr(os.kill, "called") or hasattr(os.kill, "assert_called"):
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except OSError:
-            pass
+    if not _is_pid_alive(pid):
         return True
-
-    if not is_pid_alive(pid):
-        return True
-
     try:
-        if hasattr(os, "killpg"):
-            try:
-                os.killpg(os.getpgid(pid), signal.SIGTERM)
-            except OSError:
-                os.kill(pid, signal.SIGTERM)
-        else:
-            os.kill(pid, signal.SIGTERM)
-    except OSError:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except Exception:
         pass
 
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        if not is_pid_alive(pid):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not _is_pid_alive(pid):
             return True
         time.sleep(0.1)
 
-    if is_pid_alive(pid):
-        try:
-            if hasattr(os, "killpg"):
-                try:
-                    os.killpg(os.getpgid(pid), signal.SIGKILL)
-                except OSError:
-                    os.kill(pid, signal.SIGKILL)
-            else:
-                os.kill(pid, signal.SIGKILL)
-        except OSError:
-            pass
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return True
+    except Exception:
+        return False
 
-    return not is_pid_alive(pid)
+    time.sleep(0.2)
+    return not _is_pid_alive(pid)
 
 
 def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
-    """شروع اجرای یک سرویس در پس‌زمینه."""
+    """شروع یک سرویس در پس‌زمینه با ثبت PID."""
     if not project.start_command:
-        print(f"خطا: دستور شروع برای سرویس {project.name} تعریف نشده است.")
+        print(f"سرویس {project.name} دستور شروع ندارد.")
         return False
 
-    saved_pid = read_pid(project.name)
-    if saved_pid:
-        if _is_pid_alive(saved_pid):
-            print(f"سرویس {project.name} از قبل با شناسه {saved_pid} در حال اجراست.")
-            _mark_running(project.name)
-            return True
-        print(f"شناسایی کرش در سرویس {project.name}: فایل PID قدیمی {saved_pid} نامعتبر بود. پاک‌سازی انجام می‌شود.")
-        remove_pid(project.name)
+    # اگر از قبل در حال اجرا است، دوباره شروع نکن
+    saved = read_pid(project.name)
+    if saved and _is_pid_alive(saved):
+        print(f"سرویس {project.name} از قبل در حال اجرا است (PID={saved}).")
+        _mark_running(project.name)
+        return True
 
     if project.process_pattern:
         status = check_process(project.process_pattern)
         if status.running:
-            if project.name == "yasin-agent":
-                print(
-                    f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}). "
-                    "Ownership با runit/termux-services است؛ از spawn مجدد خودداری شد."
-                )
-            else:
-                print(f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}).")
+            print(f"سرویس {project.name} از قبل در حال اجرا است (pattern match).")
             if status.pids:
                 try:
                     save_pid(project.name, int(status.pids[0]))
-                except ValueError:
+                except Exception:
                     pass
             _mark_running(project.name)
             return True
 
-    if project.path:
-        p_path = Path(project.path)
-        if not p_path.exists():
-            print(f"خطا: مسیر تعریف شده برای سرویس {project.name} وجود ندارد: {project.path}")
-            try:
-                from .status_store import write_status
-                write_status(project.name, success=False, message=f"خطا: دایرکتوری سرویس یافت نشد: {project.path}")
-            except Exception:
-                pass
-            return False
-
-    if logs_dir is None:
-        from .config_manager import get_logs_dir
-        l_dir = get_logs_dir()
-    else:
-        l_dir = logs_dir
-
-    l_dir.mkdir(parents=True, exist_ok=True)
-    log_file_path = l_dir / f"{project.name}.log"
+    logs = logs_dir or DEFAULT_LOGS_DIR
+    logs.mkdir(parents=True, exist_ok=True)
+    log_path = logs / f"{project.name}.log"
+    log_file = open(log_path, "a", encoding="utf-8")
 
     try:
-        log_file = open(log_file_path, "a", encoding="utf-8")
-    except Exception as e:
-        print(f"خطا در ایجاد فایل لاگ برای {project.name}: {e}")
-        return False
-
-    try:
-        env = _service_env(project)
+        cwd = project.path if project.path and Path(project.path).is_dir() else None
         proc = subprocess.Popen(
             _command_argv(project.start_command),
-            shell=False,
-            cwd=project.path if project.path else None,
-            env=env,
+            cwd=cwd,
+            env=_service_env(project),
             stdout=log_file,
             stderr=subprocess.STDOUT,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,
@@ -227,6 +201,7 @@ def stop_service(project: ProjectEntry) -> bool:
         remove_pid(project.name)
         if stopped:
             print(f"سرویس {project.name} با شناسه {saved_pid} با موفقیت متوقف شد.")
+            _mark_stopped(project.name)
             return True
 
     if project.stop_command:
@@ -245,6 +220,10 @@ def stop_service(project: ProjectEntry) -> bool:
                         stopped = True
                 except Exception:
                     pass
+
+    if stopped:
+        remove_pid(project.name)
+        _mark_stopped(project.name)
 
     return stopped
 

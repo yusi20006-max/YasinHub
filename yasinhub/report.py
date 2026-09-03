@@ -1,15 +1,9 @@
-"""
-report.py
-ترکیب اطلاعات status_store (آخرین اجرای گزارش‌شده) و process_checker
-(آیا الان زنده است) در یک خروجی واحد و قابل‌فهم برای هر پروژه.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
-from datetime import datetime, timezone
 
 from .process_checker import check_process
 from .registry import ProjectEntry, default_registry
@@ -52,6 +46,13 @@ def calculate_health_state(
 ) -> str:
     if process_running is True:
         return "RUNNING"
+
+    # Explicit dead process is authoritative over a prior SUCCESS observation
+    # (e.g. after Control Plane stop). Preserve FAILED for real failures.
+    if process_running is False:
+        if last_success is False:
+            return "FAILED"
+        return "IDLE"
 
     if last_success is False:
         return "FAILED"
