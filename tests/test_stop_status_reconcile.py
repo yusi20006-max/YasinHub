@@ -10,10 +10,16 @@ from yasinhub.status_store import write_status, read_status
 
 
 def test_calculate_health_dead_process_not_success():
-    assert calculate_health_state(False, "2026-09-03T10:00:00+00:00", True) == "IDLE"
-    assert calculate_health_state(False, "2026-09-03T10:00:00+00:00", False) == "FAILED"
-    assert calculate_health_state(True, "2026-09-03T10:00:00+00:00", True) == "RUNNING"
-    assert calculate_health_state(None, "2026-09-03T10:00:00+00:00", True) == "SUCCESS"
+    from datetime import datetime, timezone, timedelta
+
+    recent = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    stale = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    assert calculate_health_state(False, recent, True) == "IDLE"
+    assert calculate_health_state(False, recent, False) == "FAILED"
+    assert calculate_health_state(True, recent, True) == "RUNNING"
+    assert calculate_health_state(None, recent, True) == "SUCCESS"
+    # stale timestamp beyond 24h should be STALE, not SUCCESS
+    assert calculate_health_state(None, stale, True) == "STALE"
 
 
 def test_build_report_after_stop_is_idle_not_success(tmp_path):

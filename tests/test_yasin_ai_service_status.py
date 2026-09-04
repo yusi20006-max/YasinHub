@@ -64,6 +64,7 @@ def test_start_service_records_running_status(monkeypatch, tmp_path):
     monkeypatch.setattr("yasinhub.service_manager.save_pid", lambda name, pid: None)
     monkeypatch.setattr("yasinhub.service_manager.time.sleep", lambda _: None)
     monkeypatch.setattr("yasinhub.service_manager._service_env", lambda project: {})
+    monkeypatch.setattr("yasinhub.service_manager.is_pid_alive", lambda pid: True)
     monkeypatch.setattr("yasinhub.config_manager.get_status_dir", lambda: tmp_path)
 
     assert start_service(project, logs_dir=tmp_path) is True

@@ -164,15 +164,19 @@ def test_config_generation_and_loading(tmp_path):
     assert reloaded_projects[0].description == "توضیح تستی سفارشی"
 
 
+@patch("yasinhub.service_manager.is_pid_alive", return_value=True)
+@patch("yasinhub.service_manager.save_pid")
+@patch("yasinhub.service_manager.read_pid", return_value=None)
 @patch("yasinhub.service_manager.subprocess.Popen")
 @patch("yasinhub.service_manager.check_process")
-def test_start_service_success(mock_check, mock_popen, tmp_path):
+def test_start_service_success(mock_check, mock_popen, mock_read, mock_save, mock_alive, tmp_path):
     # فرض کنیم پروسس الان در حال اجرا نیست
     mock_check.return_value = ProcessStatus(pattern="test_pattern", running=False, pids=[])
 
     # ساختن شیء پروسس ساختگی که متوقف نشده (poll برمی‌گرداند None)
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
+    mock_proc.pid = 12345
     mock_popen.return_value = mock_proc
 
     project = ProjectEntry(name="test_srv", start_command="python3 run.py", process_pattern="test_pattern")

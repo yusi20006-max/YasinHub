@@ -14,12 +14,14 @@ def test_yhub_launcher_execution():
     """
     import os
     import stat
-    launcher = "./yhub"
+    from pathlib import Path
+
+    launcher = Path(__file__).resolve().parents[1] / "yhub"
     mode = os.stat(launcher).st_mode
     if mode & stat.S_IXUSR:
-        cmd = [launcher, "--help"]
+        cmd = [str(launcher), "--help"]
     else:
-        cmd = [sys.executable, launcher, "--help"]
+        cmd = [sys.executable, str(launcher), "--help"]
     result = subprocess.run(
         cmd,
         capture_output=True,

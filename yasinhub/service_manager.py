@@ -187,7 +187,11 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
     else:
         l_dir = logs_dir
 
-    l_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        l_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"خطا در ایجاد دایرکتوری لاگ برای {project.name}: {e}")
+        return False
     log_file_path = l_dir / f"{project.name}.log"
 
     try:
@@ -209,14 +213,43 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
         )
 
         save_pid(project.name, proc.pid)
-        time.sleep(0.3)
-        if proc.poll() is not None:
-            print(f"خطا: سرویس {project.name} بلافاصله با کد خروج {proc.poll()} متوقف شد.")
+        # Zombie / early-exit defense: Relay with empty SOURCE_CHANNELS exits after ~1.06s,
+        # so a 0.3s single-check yields false success. Poll with is_pid_alive for ~2.0s.
+        startup_window = 2.0
+        poll_interval = 0.15
+        deadline = time.time() + startup_window
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                print(f"خطا: سرویس {project.name} بلافاصله با کد خروج {proc.poll()} متوقف شد.")
+                remove_pid(project.name)
+                log_file.close()
+                try:
+                    from .status_store import write_status
+                    write_status(project.name, success=False, message=f"خطا: پروسس با کد خروج {proc.poll()} متوقف شد.")
+                except Exception:
+                    pass
+                return False
+            if not is_pid_alive(proc.pid):
+                print(f"خطا: سرویس {project.name} با شناسه {proc.pid} زامبی یا متوقف شد.")
+                remove_pid(project.name)
+                log_file.close()
+                try:
+                    from .status_store import write_status
+                    write_status(project.name, success=False, message="خطا: پروسس زامبی یا متوقف شد.")
+                except Exception:
+                    pass
+                return False
+            time.sleep(poll_interval)
+
+        # Final authoritative check after window
+        if proc.poll() is not None or not is_pid_alive(proc.pid):
+            code = proc.poll()
+            print(f"خطا: سرویس {project.name} در پنجره راه‌اندازی متوقف شد (کد {code}).")
             remove_pid(project.name)
             log_file.close()
             try:
                 from .status_store import write_status
-                write_status(project.name, success=False, message=f"خطا: پروسس با کد خروج {proc.poll()} متوقف شد.")
+                write_status(project.name, success=False, message=f"خطا: پروسس در پنجره راه‌اندازی متوقف شد (کد {code}).")
             except Exception:
                 pass
             return False

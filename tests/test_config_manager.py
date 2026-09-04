@@ -117,9 +117,11 @@ def test_runtime_config_reload(tmp_path):
 def test_global_singleton_apis(tmp_path, monkeypatch):
     """تست توابع جهانی Singleton صادر شده"""
     config_file = tmp_path / "global_config.yaml"
+    global_status = str(tmp_path / "global_status")
+    global_logs = str(tmp_path / "global_logs")
     initial_data = {
-        "status_dir": "/tmp/global_status",
-        "logs_dir": "/tmp/global_logs",
+        "status_dir": global_status,
+        "logs_dir": global_logs,
         "projects": [
             {"name": "global_proj", "description": "توضیح"}
         ]
@@ -127,14 +129,21 @@ def test_global_singleton_apis(tmp_path, monkeypatch):
     config_file.write_text(yaml.dump(initial_data), encoding="utf-8")
 
     from yasinhub import config_manager
-    monkeypatch.setattr(config_manager._manager, "config_path", config_file)
-    config_manager.reload_config()
+    # Preserve original singleton state to avoid polluting subsequent tests
+    orig_config = dict(config_manager._manager._config)
+    orig_path = config_manager._manager.config_path
+    try:
+        monkeypatch.setattr(config_manager._manager, "config_path", config_file)
+        config_manager.reload_config()
 
-    assert get_status_dir() == Path("/tmp/global_status")
-    assert get_logs_dir() == Path("/tmp/global_logs")
-    assert len(get_projects()) == 1
-    assert get_projects()[0].name == "global_proj"
-    assert isinstance(get_config(), dict)
+        assert get_status_dir() == Path(global_status)
+        assert get_logs_dir() == Path(global_logs)
+        assert len(get_projects()) == 1
+        assert get_projects()[0].name == "global_proj"
+        assert isinstance(get_config(), dict)
+    finally:
+        config_manager._manager.config_path = orig_path
+        config_manager._manager._config = orig_config
 
 
 def test_legacy_ecosystem_path_resolves_to_canonical_root(tmp_path, monkeypatch):

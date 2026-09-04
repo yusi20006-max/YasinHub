@@ -112,13 +112,23 @@ def test_yasin_agent_runit_no_duplicate(tmp_path, monkeypatch):
         return ProcessStatus(pattern=pattern, running=True, pids=["99999"])
 
     monkeypatch.setattr("yasinhub.service_manager.check_process", mock_check_process)
+    # Isolate from stale global PID file pollution
+    monkeypatch.setattr("yasinhub.service_manager.read_pid", lambda name: None)
+    monkeypatch.setattr("yasinhub.service_manager.is_pid_alive", lambda pid: False)
+
+    saved = {}
+
+    def fake_save(name, pid):
+        saved[name] = pid
+
+    monkeypatch.setattr("yasinhub.service_manager.save_pid", fake_save)
 
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     result = start_service(agent_project, logs_dir=logs_dir)
     assert result is True, "Should observe already-running agent without spawning duplicate"
-    assert read_pid("yasin-agent") == 99999
+    assert saved.get("yasin-agent") == 99999
 
 
 def test_canonical_noninteractive_service_commands():
@@ -133,7 +143,7 @@ def test_canonical_noninteractive_service_commands():
 
     relay = next((p for p in projects if p.name == "yasinrelay"), None)
     assert relay is not None
-    assert relay.start_command == "python3 -m yasinrelay.cli run"
+    assert relay.start_command == ".venv/bin/yasinrelay-termux run --schedule --non-interactive"
 
     ai = next((p for p in projects if p.name == "yasin-ai"), None)
     assert ai is not None
