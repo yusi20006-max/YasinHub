@@ -13,6 +13,7 @@ from ..report import build_report
 from ..registry import default_registry
 from ..service_manager import start_service, stop_service, restart_service
 from ..pid_store import read_pid, is_pid_alive
+from .service_control_helpers import service_runtime_snapshot, status_project_payload
 
 
 class YasinHubHandler(BaseHTTPRequestHandler):
@@ -44,7 +45,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def handle_control(self, clean_path: str) -> bool:
-        """پردازش دستورات کنترلی سرویس‌ها"""
+        """پردازش دستورات کنترلی سرویس‌ها — پاسخ از runtime واقعی پس از عملیات."""
         if clean_path.startswith("/api/control/"):
             parts = clean_path.split("/")
             if len(parts) < 5:
@@ -61,9 +62,13 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
             if project is None:
                 self.send_json({
+                    "service": service,
+                    "action": action,
                     "success": False,
-                    "error": "service not found"
-                })
+                    "error": "service not found",
+                    "status": "UNKNOWN",
+                    "pid": None,
+                }, status=404)
                 return True
 
             if action == "start":
@@ -74,16 +79,28 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                 result = restart_service(project)
             else:
                 self.send_json({
+                    "service": service,
+                    "action": action,
                     "success": False,
-                    "error": "unknown action"
-                })
+                    "error": "unknown action",
+                    "status": "UNKNOWN",
+                    "pid": None,
+                }, status=400)
                 return True
 
-            self.send_json({
+            snap = service_runtime_snapshot(service)
+            payload = {
                 "service": service,
                 "action": action,
-                "success": result
-            })
+                "success": bool(result),
+                "status": snap["status"],
+                "pid": snap["pid"],
+                "message": snap.get("message") or ("ok" if result else "control operation failed"),
+                "process_running": snap.get("process_running"),
+            }
+            if not result:
+                payload["error"] = payload["message"]
+            self.send_json(payload, status=200 if result else 409)
             return True
         return False
 
@@ -258,22 +275,9 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
         if clean_path == "/api/status":
             reports = build_report()
-
             self.send_json({
                 "ecosystem": "Yasin",
-                "projects": [
-                    {
-                        "name": r.name,
-                        "status": r.health_state,
-                        "last_run": r.last_run,
-                        "success": r.last_success,
-                        "message": r.last_message,
-                        "metrics": r.metrics,
-                        "db_stats": r.db_stats,
-                        "health": r.health,
-                    }
-                    for r in reports
-                ]
+                "projects": [status_project_payload(r) for r in reports],
             })
             return
 

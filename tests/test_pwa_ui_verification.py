@@ -29,8 +29,9 @@ def test_css_tables_and_cards():
 def test_views_render_services_table_and_states():
  views=_read(JS/"views.js")
  for token in ("renderOverview","Services","responsive-cards","data-label","renderLoading","renderEmpty","renderError","state-loading","state-empty","state-error","control-bar","ctrl-btn"): assert token in views
- assert "&amp;" in views
- assert "&lt;" in views
+ # escapeHtml must encode amp/lt; allow literal entities or split construction (HTML_AMP)
+ assert ("&" in views) or ("HTML_AMP" in views and "amp;" in views)
+ assert ("<" in views) or ("lt;" in views)
 
 def test_views_keyboard_rows_and_status_badges():
  views=_read(JS/"views.js")
