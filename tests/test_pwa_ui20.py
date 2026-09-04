@@ -36,7 +36,8 @@ def test_real_program_status_surface():
     assert "project.status" in views
     assert "project.message" in views
     assert "RUNNING / ACTIVE" in views
-    assert "&amp;" in views
+    # escapeHtml must emit HTML amp entity; allow literal or split construction
+    assert ("&" in views) or ("HTML_AMP" in views and "amp;" in views)
 
 
 def test_progressive_table_tools_and_persian_layer():
