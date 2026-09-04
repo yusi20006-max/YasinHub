@@ -1,4 +1,4 @@
-"""Phase 4: PWA ↔ Control Plane truthful integration contracts."""
+"""Phase 4: PWA Control Plane truthful integration contracts."""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from yasinhub.registry import ProjectEntry
-from tests.test_api_server import DummyHandler, MockRequest
 import pytest
+
+from tests.test_api_server import DummyHandler, MockRequest
+from yasinhub.registry import ProjectEntry
 
 ROOT = Path(__file__).resolve().parents[1]
 DASH = ROOT / "dashboard"
@@ -32,8 +33,8 @@ def test_status_payload_includes_pid_and_process_running(dummy_handler):
     report.process_running = True
 
     with patch("yasinhub.api.server.build_report", return_value=[report]), patch(
-        "yasinhub.api.server.read_pid", return_value=4242
-    ), patch("yasinhub.api.server.is_pid_alive", return_value=True):
+        "yasinhub.api.service_control_helpers.read_pid", return_value=4242
+    ), patch("yasinhub.api.service_control_helpers.is_pid_alive", return_value=True):
         dummy_handler.path = "/api/status"
         dummy_handler.do_GET()
 
@@ -55,9 +56,9 @@ def test_control_start_returns_authoritative_snapshot(dummy_handler):
 
     with patch("yasinhub.api.server.default_registry", return_value=[project]), patch(
         "yasinhub.api.server.start_service", return_value=True
-    ), patch("yasinhub.api.server.build_report", return_value=[report]), patch(
-        "yasinhub.api.server.read_pid", return_value=777
-    ), patch("yasinhub.api.server.is_pid_alive", return_value=True):
+    ), patch("yasinhub.api.service_control_helpers.build_report", return_value=[report]), patch(
+        "yasinhub.api.service_control_helpers.read_pid", return_value=777
+    ), patch("yasinhub.api.service_control_helpers.is_pid_alive", return_value=True):
         dummy_handler.path = "/api/control/yasinrelay/start"
         dummy_handler.do_POST()
 
@@ -80,9 +81,9 @@ def test_control_failure_is_not_http_200(dummy_handler):
 
     with patch("yasinhub.api.server.default_registry", return_value=[project]), patch(
         "yasinhub.api.server.start_service", return_value=False
-    ), patch("yasinhub.api.server.build_report", return_value=[report]), patch(
-        "yasinhub.api.server.read_pid", return_value=None
-    ), patch("yasinhub.api.server.is_pid_alive", return_value=False):
+    ), patch("yasinhub.api.service_control_helpers.build_report", return_value=[report]), patch(
+        "yasinhub.api.service_control_helpers.read_pid", return_value=None
+    ), patch("yasinhub.api.service_control_helpers.is_pid_alive", return_value=False):
         dummy_handler.path = "/api/control/yasinrelay/start"
         dummy_handler.do_POST()
 
