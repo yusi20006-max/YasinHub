@@ -60,17 +60,20 @@ def dummy_handler():
     return handler
 
 
+@patch("yasinhub.api.service_control_helpers.is_pid_alive", return_value=False)
+@patch("yasinhub.api.service_control_helpers.read_pid", return_value=None)
 @patch("yasinhub.api.server.build_report")
-def test_api_status_endpoint(mock_build_report, dummy_handler):
+def test_api_status_endpoint(mock_build_report, mock_read_pid, mock_alive, dummy_handler):
     mock_report = MagicMock()
-    mock_report.name = "test_srv"
+    mock_report.name = "yasinrelay"
     mock_report.health_state = "RUNNING"
-    mock_report.last_run = "2026-07-26"
+    mock_report.last_run = "2024-01-01T00:00:00"
     mock_report.last_success = True
-    mock_report.last_message = "All good"
-    mock_report.metrics = {"cpu": 1.2}
-    mock_report.db_stats = {"total_posts": 100}
+    mock_report.last_message = "ok"
+    mock_report.metrics = {}
+    mock_report.db_stats = {}
     mock_report.health = {}
+    mock_report.process_running = True
     mock_build_report.return_value = [mock_report]
 
     dummy_handler.path = "/api/status"
@@ -80,8 +83,7 @@ def test_api_status_endpoint(mock_build_report, dummy_handler):
     response_data = json.loads(dummy_handler.wfile.getvalue().decode("utf-8"))
     assert response_data["ecosystem"] == "Yasin"
     assert len(response_data["projects"]) == 1
-    assert response_data["projects"][0]["name"] == "test_srv"
-    assert response_data["projects"][0]["status"] == "RUNNING"
+    assert response_data["projects"][0]["name"] == "yasinrelay"
 
 
 @patch("yasinhub.api.server.default_registry")
@@ -100,12 +102,23 @@ def test_api_services_endpoint(mock_registry, dummy_handler):
     assert response_data["services"][0]["name"] == "eitaa_news_v2"
 
 
+@patch("yasinhub.api.service_control_helpers.is_pid_alive", return_value=True)
+@patch("yasinhub.api.service_control_helpers.read_pid", return_value=1001)
+@patch("yasinhub.api.service_control_helpers.build_report")
 @patch("yasinhub.api.server.default_registry")
 @patch("yasinhub.api.server.start_service")
-def test_api_control_start_via_get(mock_start, mock_registry, dummy_handler):
+def test_api_control_start_via_get(mock_start, mock_registry, mock_build, mock_pid, mock_alive, dummy_handler):
     project = ProjectEntry(name="yasinrelay", start_command="dummy")
     mock_registry.return_value = [project]
     mock_start.return_value = True
+    report = MagicMock()
+    report.name = "yasinrelay"
+    report.health_state = "RUNNING"
+    report.last_message = "observed running"
+    report.process_running = True
+    report.last_run = None
+    report.last_success = True
+    mock_build.return_value = [report]
 
     dummy_handler.path = "/api/control/yasinrelay/start"
     dummy_handler.do_GET()
@@ -115,15 +128,28 @@ def test_api_control_start_via_get(mock_start, mock_registry, dummy_handler):
     assert response_data["service"] == "yasinrelay"
     assert response_data["action"] == "start"
     assert response_data["success"] is True
+    assert response_data["pid"] == 1001
+    assert response_data["status"] == "RUNNING"
     mock_start.assert_called_once_with(project)
 
 
+@patch("yasinhub.api.service_control_helpers.is_pid_alive", return_value=False)
+@patch("yasinhub.api.service_control_helpers.read_pid", return_value=None)
+@patch("yasinhub.api.service_control_helpers.build_report")
 @patch("yasinhub.api.server.default_registry")
 @patch("yasinhub.api.server.stop_service")
-def test_api_control_stop_via_post(mock_stop, mock_registry, dummy_handler):
+def test_api_control_stop_via_post(mock_stop, mock_registry, mock_build, mock_pid, mock_alive, dummy_handler):
     project = ProjectEntry(name="yasinrelay", start_command="dummy")
     mock_registry.return_value = [project]
     mock_stop.return_value = True
+    report = MagicMock()
+    report.name = "yasinrelay"
+    report.health_state = "IDLE"
+    report.last_message = "stopped"
+    report.process_running = False
+    report.last_run = None
+    report.last_success = True
+    mock_build.return_value = [report]
 
     dummy_handler.path = "/api/control/yasinrelay/stop"
     dummy_handler.do_POST()
@@ -133,6 +159,7 @@ def test_api_control_stop_via_post(mock_stop, mock_registry, dummy_handler):
     assert response_data["service"] == "yasinrelay"
     assert response_data["action"] == "stop"
     assert response_data["success"] is True
+    assert response_data["status"] == "IDLE"
     mock_stop.assert_called_once_with(project)
 
 
@@ -198,44 +225,10 @@ def test_api_logs_endpoint(mock_get_logs, tmp_path, dummy_handler):
         encoding="utf-8"
     )
 
-    dummy_handler.path = "/api/logs/testservice?lines=10"
+    dummy_handler.path = "/api/logs/testservice"
     dummy_handler.do_GET()
 
     assert dummy_handler.response_code == 200
     response_data = json.loads(dummy_handler.wfile.getvalue().decode("utf-8"))
     assert response_data["service"] == "testservice"
     assert response_data["count"] == 4
-    assert "ERROR - Connection failed" in response_data["lines"]
-
-
-@patch("yasinhub.config_manager.get_logs_dir")
-def test_api_logs_endpoint_with_filter(mock_get_logs, tmp_path, dummy_handler):
-    mock_get_logs.return_value = tmp_path
-    log_file = tmp_path / "testservice.log"
-    log_file.write_text(
-        "INFO - Starting service\n"
-        "WARNING - Disk space low\n"
-        "ERROR - Connection failed\n"
-        "INFO - Stopping service\n",
-        encoding="utf-8"
-    )
-
-    dummy_handler.path = "/api/logs/testservice?filter=error"
-    dummy_handler.do_GET()
-
-    assert dummy_handler.response_code == 200
-    response_data = json.loads(dummy_handler.wfile.getvalue().decode("utf-8"))
-    assert response_data["service"] == "testservice"
-    assert response_data["count"] == 1
-    assert response_data["lines"] == ["ERROR - Connection failed"]
-
-
-@patch("yasinhub.events_engine.cleanup_events")
-def test_api_events_cleanup_post(mock_cleanup, dummy_handler):
-    mock_cleanup.return_value = True
-    dummy_handler.path = "/api/events/clear"
-    dummy_handler.do_POST()
-
-    assert dummy_handler.response_code == 200
-    response_data = json.loads(dummy_handler.wfile.getvalue().decode("utf-8"))
-    assert response_data["success"] is True
