@@ -56,7 +56,10 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         path=str(YASIN_ECOSYSTEM_ROOT / "YasinRelay"),
         process_pattern="yasinrelay.cli",
         description="تلگرام -> AI -> ایتا",
-        start_command="python3 -m yasinrelay.cli run"
+        # Relay is a service boundary: never allow the Hub/runit caller to
+        # fall into CLI configuration prompts. The Termux launcher also
+        # preserves the Python runtime preload required by Yasin-AI.
+        start_command=".venv/bin/yasinrelay-termux run --schedule --non-interactive",
     ),
     ProjectEntry(
         name="yasin-agent",
