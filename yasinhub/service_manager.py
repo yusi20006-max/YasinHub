@@ -6,6 +6,7 @@ service_manager.py
 from __future__ import annotations
 
 import os
+import posixpath
 import shlex
 import signal
 import subprocess
@@ -20,6 +21,13 @@ from .pid_store import save_pid, read_pid, remove_pid, is_pid_alive
 # دایرکتوری پیش‌فرض لاگ‌ها
 DEFAULT_LOGS_DIR = Path(os.environ.get("YASINHUB_LOGS_DIR", str(Path.home() / ".yasinhub" / "logs")))
 
+# قرارداد راستی‌آزمایی راه‌اندازی (Issue #163): پنجره‌ی محدود که پروسس فرزند
+# باید در آن زنده بماند تا START موفق گزارش شود. حلقه بر اساس تعداد تلاش است
+# (بدون محاسبات time.time) تا با mock شدن time در تست‌ها سازگار بماند.
+# خروج زودهنگام بلافاصله تشخیص داده می‌شود (fail fast)؛ این sleep دلخواه نیست.
+STARTUP_GRACE_SECONDS = 2.0
+STARTUP_POLL_INTERVAL = 0.2
+
 
 def _command_argv(command: str) -> list[str]:
     """Parse a configured command once at the trust boundary, without shell evaluation."""
@@ -33,6 +41,76 @@ def _is_pid_alive(pid: int) -> bool:
     if hasattr(os.kill, "called") or hasattr(os.kill, "assert_called"):
         return True
     return is_pid_alive(pid)
+
+
+def _read_proc_cmdline(pid: int) -> Optional[str]:
+    """Read /proc/<pid>/cmdline (Termux/Android + Linux). None when unavailable."""
+    try:
+        data = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return None
+    try:
+        return data.replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
+    except Exception:
+        return None
+
+
+def verify_process_identity(pid: int, process_pattern: Optional[str],
+                            start_command: Optional[str] = None) -> Optional[bool]:
+    """Check whether a live PID plausibly belongs to the expected service.
+
+    A PID is treated as owned when EITHER the discovery pattern appears in its
+    command line OR argv[0] equals the configured start command's argv[0]
+    (covers Hub-spawned children whose pattern is meant for externally
+    supervised discovery and need not textually match the spawn command).
+
+    Returns True (owned), False (readable but foreign — must not be killed),
+    or None (unverifiable: no hints, dead PID, or no /proc support).
+    Never raises; verification failure must not crash lifecycle operations.
+    """
+    if not process_pattern and not start_command:
+        return None
+    try:
+        alive = _is_pid_alive(pid)
+    except Exception:
+        return None
+    if not alive:
+        return None
+    cmdline = _read_proc_cmdline(pid)
+    if cmdline is None:
+        return None
+    if process_pattern and process_pattern in cmdline:
+        return True
+    if start_command:
+        try:
+            argv0 = _command_argv(start_command)[0]
+        except ValueError:
+            argv0 = ""
+        if argv0:
+            first = cmdline.split(" ")[0] if cmdline else ""
+            if first == argv0 or first.endswith("/" + argv0) or argv0.endswith("/" + first):
+                return True
+            # argv[0] basename comparison (relative launcher vs resolved path).
+            if posixpath.basename(first) == posixpath.basename(argv0):
+                return True
+    return False
+
+
+def _wait_for_stable_start(proc: subprocess.Popen, grace: float = STARTUP_GRACE_SECONDS,
+                           interval: float = STARTUP_POLL_INTERVAL) -> Optional[int]:
+    """Bounded startup verification for a freshly spawned child.
+
+    Polls proc.poll() (authoritative for our own child; fail-fast on early exit)
+    for up to `grace` seconds. Returns the exit code if the child died during the
+    window, else None (stable). Uses attempt counting so mocked time stays instant.
+    """
+    attempts = max(1, int(grace / interval))
+    for _ in range(attempts):
+        code = proc.poll()
+        if code is not None:
+            return code
+        time.sleep(interval)
+    return proc.poll()
 
 
 def _yasin_agent_token() -> str:
@@ -94,7 +172,13 @@ def _mark_stopped(project_name: str) -> None:
 def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
     """
     توقف یک پروسس به صورت امن و تضمینی. ابتدا ارسال SIGTERM و در صورت عدم توقف پس از timeout، ارسال SIGKILL.
+    هرگز خودِ پروسس فراخوان (Hub) را نمی‌کشد.
     """
+    try:
+        if pid == os.getpid():
+            return False
+    except Exception:
+        pass
     if hasattr(os.kill, "called") or hasattr(os.kill, "assert_called"):
         try:
             os.kill(pid, signal.SIGTERM)
@@ -209,14 +293,14 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
         )
 
         save_pid(project.name, proc.pid)
-        time.sleep(0.3)
-        if proc.poll() is not None:
-            print(f"خطا: سرویس {project.name} بلافاصله با کد خروج {proc.poll()} متوقف شد.")
+        exit_code = _wait_for_stable_start(proc)
+        if exit_code is not None:
+            print(f"خطا: سرویس {project.name} در حین راستی‌آزمایی راه‌اندازی با کد خروج {exit_code} متوقف شد.")
             remove_pid(project.name)
             log_file.close()
             try:
                 from .status_store import write_status
-                write_status(project.name, success=False, message=f"خطا: پروسس با کد خروج {proc.poll()} متوقف شد.")
+                write_status(project.name, success=False, message=f"خطا: پروسس در حین راه‌اندازی با کد خروج {exit_code} متوقف شد.")
             except Exception:
                 pass
             return False
@@ -238,17 +322,37 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
 
 
 def stop_service(project: ProjectEntry) -> bool:
-    """توقف سرویس با PID ذخیره شده یا process pattern."""
+    """توقف سرویس با PID ذخیره شده یا process pattern.
+
+    قرارداد: فقط پروسس تحت مالکیت Hub خاتمه داده می‌شود؛ PID ذخیره‌شده‌ای که
+    هویتش با الگوی سرویس تأیید نشود کشته نمی‌شود (فایل PID کهنه پاک می‌شود).
+    الگوی پروسس فقط برای reconciliation/discovery است و هرگز نباید باعث کشته
+    شدن خودِ پروسس Hub شود.
+    """
     stopped = False
     saved_pid = read_pid(project.name)
+    self_pid = os.getpid()
+    skip_pattern_kill = False
 
     if saved_pid:
-        stopped = stop_pid_safely(saved_pid)
-        remove_pid(project.name)
-        if stopped:
-            print(f"سرویس {project.name} با شناسه {saved_pid} با موفقیت متوقف شد.")
-            _mark_stopped(project.name)
-            return True
+        if saved_pid == self_pid:
+            remove_pid(project.name)
+            skip_pattern_kill = True
+        else:
+            identity = verify_process_identity(
+                saved_pid, project.process_pattern, project.start_command
+            )
+            if identity is False:
+                print(f"هشدار: PID ذخیره‌شده {saved_pid} متعلق به سرویس {project.name} نیست؛ کشته نمی‌شود.")
+                remove_pid(project.name)
+                skip_pattern_kill = True
+            else:
+                stopped = stop_pid_safely(saved_pid)
+                remove_pid(project.name)
+                if stopped:
+                    print(f"سرویس {project.name} با شناسه {saved_pid} با موفقیت متوقف شد.")
+                    _mark_stopped(project.name)
+                    return True
 
     if project.stop_command:
         try:
@@ -257,12 +361,18 @@ def stop_service(project: ProjectEntry) -> bool:
         except Exception as e:
             print(f"خطا در اجرای دستور توقف سرویس {project.name}: {e}")
 
-    if project.process_pattern:
+    if project.process_pattern and not skip_pattern_kill:
         status = check_process(project.process_pattern)
         if status.running:
             for pid_str in status.pids:
                 try:
-                    if stop_pid_safely(int(pid_str)):
+                    pid = int(pid_str)
+                except ValueError:
+                    continue
+                if pid == self_pid:
+                    continue
+                try:
+                    if stop_pid_safely(pid):
                         stopped = True
                 except Exception:
                     pass
@@ -275,8 +385,27 @@ def stop_service(project: ProjectEntry) -> bool:
 
 
 def restart_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
-    """راه‌اندازی مجدد یک سرویس با ترکیب متوقف کردن و شروع مجدد آن."""
+    """راه‌اندازی مجدد با قرارداد راستی‌آزمایی: توقف، مرگ پروسس قدیمی، شروع،
+    زنده بودن پروسس جدید و تفاوت PID."""
     print(f"در حال ری‌استارت کردن سرویس {project.name}...")
+    old_pid = read_pid(project.name)
     stop_service(project)
+    if old_pid and _is_pid_alive(old_pid):
+        print(f"خطا: پروسس قدیمی {old_pid} سرویس {project.name} پس از توقف هنوز زنده است.")
+        try:
+            from .status_store import write_status
+            write_status(project.name, success=False, message=f"خطا: پروسس قدیمی {old_pid} پس از توقف زنده ماند.")
+        except Exception:
+            pass
+        return False
     time.sleep(0.2)
-    return start_service(project, logs_dir=logs_dir)
+    if not start_service(project, logs_dir=logs_dir):
+        return False
+    new_pid = read_pid(project.name)
+    if not new_pid or not _is_pid_alive(new_pid):
+        print(f"خطا: پروسس جدید سرویس {project.name} پس از ری‌استارت زنده نیست.")
+        return False
+    if old_pid and new_pid == old_pid:
+        print(f"خطا: PID پس از ری‌استارت سرویس {project.name} تغییر نکرد ({new_pid}).")
+        return False
+    return True

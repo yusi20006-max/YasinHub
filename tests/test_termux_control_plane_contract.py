@@ -112,6 +112,11 @@ def test_yasin_agent_runit_no_duplicate(tmp_path, monkeypatch):
         return ProcessStatus(pattern=pattern, running=True, pids=["99999"])
 
     monkeypatch.setattr("yasinhub.service_manager.check_process", mock_check_process)
+    # Isolate the PID store: the test device may hold a real live
+    # yasin-agent PID file, which must not influence this mocked scenario.
+    pid_dir = tmp_path / "pids"
+    pid_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("yasinhub.pid_store.get_pid_dir", lambda: pid_dir)
 
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -124,7 +129,8 @@ def test_yasin_agent_runit_no_duplicate(tmp_path, monkeypatch):
 def test_canonical_noninteractive_service_commands():
     """
     Ensure managed service registry commands are noninteractive and canonical.
-    - YasinRelay: python3 -m yasinrelay.cli run
+    - YasinRelay: .venv/bin/yasinrelay-termux run --schedule --non-interactive
+      (Termux launcher; never the bare module CLI which can hit config prompts)
     - Yasin-AI: yasin serve
     - Yasin-Agent: .venv/bin/python -m agent_platform.server
     """
@@ -133,7 +139,8 @@ def test_canonical_noninteractive_service_commands():
 
     relay = next((p for p in projects if p.name == "yasinrelay"), None)
     assert relay is not None
-    assert relay.start_command == "python3 -m yasinrelay.cli run"
+    assert relay.start_command == ".venv/bin/yasinrelay-termux run --schedule --non-interactive"
+    assert "--non-interactive" in relay.start_command
 
     ai = next((p for p in projects if p.name == "yasin-ai"), None)
     assert ai is not None

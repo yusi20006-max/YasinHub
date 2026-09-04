@@ -130,11 +130,18 @@ def test_global_singleton_apis(tmp_path, monkeypatch):
     monkeypatch.setattr(config_manager._manager, "config_path", config_file)
     config_manager.reload_config()
 
-    assert get_status_dir() == Path("/tmp/global_status")
-    assert get_logs_dir() == Path("/tmp/global_logs")
-    assert len(get_projects()) == 1
-    assert get_projects()[0].name == "global_proj"
-    assert isinstance(get_config(), dict)
+    try:
+        assert get_status_dir() == Path("/tmp/global_status")
+        assert get_logs_dir() == Path("/tmp/global_logs")
+        assert len(get_projects()) == 1
+        assert get_projects()[0].name == "global_proj"
+        assert isinstance(get_config(), dict)
+    finally:
+        # Restore the real global configuration: reload_config() mutates the
+        # process-wide singleton, so later tests would otherwise inherit the
+        # tmp paths (order-dependent pollution).
+        monkeypatch.undo()
+        config_manager.reload_config()
 
 
 def test_legacy_ecosystem_path_resolves_to_canonical_root(tmp_path, monkeypatch):
