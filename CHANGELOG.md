@@ -12,6 +12,17 @@
 
 ## Unreleased
 
+- #163: Control Plane startup verification contract
+  - bounded startup verification for fresh spawns (fail fast on early exit,
+    FAILED status with exit code, PID cleanup — no more success:true for dead processes)
+  - identity-aware STOP (saved PID verified via /proc cmdline + start argv[0];
+    Hub never kills its own PID; pattern matches remain reconciliation-only)
+  - verified RESTART (old process dead, new process alive, PID differs)
+  - `HttpTransportConfig.from_env`: explicitly injected env mapping is authoritative;
+    canonical token file wins only for the real process environment
+  - regression tests: `tests/test_control_plane_startup.py` (real processes, incl.
+    exit-during-verification case)
+
 - #153: live/supervised process is authoritative over stale FAILED status_store records
 
 - Hardening after #149: canonical token file wins over stale env; runit orphan
