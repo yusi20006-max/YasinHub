@@ -9,7 +9,7 @@ def _read(path:Path)->str:return path.read_text(encoding="utf-8")
 def test_css_design_tokens_and_dark_mode():
  css=_read(DASHBOARD/"style.css")
  for token in ("--bg","--surface","--text","--muted","--border","--accent","--danger","--success","--warn","--shadow","--focus-ring"): assert token in css,token
- assert ".dark {" in css
+ assert ".dark{" in css
  for st in ("status-queued","status-running","status-paused","status-succeeded","status-failed","status-cancelled","status-unknown"): assert st in css,st
 
 def test_css_responsive_and_mobile_nav():
