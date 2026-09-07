@@ -83,7 +83,9 @@ def test_pwa_html_shell_endpoint_and_accessibility():
     assert 'role="status"' in body
     assert 'aria-live="polite"' in body
     assert 'aria-atomic="true"' in body
-    assert 'data-nav="executions"' in body
+    assert 'data-nav="overview"' in body
+    # Observer entry removed from the PWA sidebar; overview nav remains.
+    assert 'data-nav="executions"' not in body
 
 
 def test_app_js_containment_of_semantics():

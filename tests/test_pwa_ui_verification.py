@@ -14,7 +14,9 @@ def test_css_design_tokens_and_dark_mode():
 
 def test_css_responsive_and_mobile_nav():
  css=_read(DASHBOARD/"style.css")
- assert "@media" in css and "nav-toggle" in css and ".sidebar.open" in css and "responsive-cards" in css
+ # Mobile drawer was removed on main (#178): nav-toggle hidden and sidebar
+ # display:none at <=800px, so no .sidebar.open rule exists anymore.
+ assert "@media" in css and "nav-toggle" in css and ".sidebar{display:none}" in css and "responsive-cards" in css
  assert "--touch-min" in css or "min-height" in css
  assert "dir=\"rtl\"" in css or "[dir=\"rtl\"]" in css or "html[dir=\"rtl\"]" in css
 
@@ -41,11 +43,15 @@ def test_views_keyboard_rows_and_status_badges():
 def test_app_uses_status_endpoint_for_services():
  app=_read(DASHBOARD/"app.js");api=_read(JS/"api.js")
  assert "getSystemStatus" in api and "/api/status" in api and "getSystemStatus" in app and "getSystemDashboard" in app
- assert "control-pending" in app or "isPending" in app
+ # Detail-page pending wiring was removed with the Observer pages; the status
+ # endpoint now feeds the overview render path.
+ assert "renderOverview" in app
 
 def test_shell_preserves_routes_and_chrome():
  html=_read(DASHBOARD/"index.html")
- for nav in ("overview","executions","fleets","events"): assert f'data-nav="{nav}"' in html
+ for nav in ("overview",): assert f'data-nav="{nav}"' in html
+ # Observer entries were intentionally removed from the sidebar UI.
+ for nav in ("executions","fleets","events"): assert f'data-nav="{nav}"' not in html
  for token in ("connection-status","stale-indicator","theme-toggle","nav-toggle","skip-link","id=\"content\"","lang=\"fa\"","dir=\"rtl\"","style.css?v=2","service-controls.js?v=3"): assert token in html
 
 def test_models_status_class_maps_health_states():

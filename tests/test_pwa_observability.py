@@ -18,7 +18,9 @@ def _read(path: Path) -> str:
 def test_app_js_polling_intervals_and_controls():
     content = _read(DASH / "app.js")
     assert "POLL_LIST_MS" in content
-    assert "POLL_DETAIL_MS" in content
+    # Detail routes were removed with the Observer pages; only the overview
+    # list interval remains.
+    assert "POLL_DETAIL_MS" not in content
     assert "startPolling" in content
     assert "stopPolling" in content
     assert "setInterval" in content

@@ -24,8 +24,11 @@ def test_persian_rtl_shell_and_assets():
     html = _r(D / "index.html")
     assert 'lang="fa"' in html
     assert 'dir="rtl"' in html
-    for text in ("نمای کلی", "اجراها", "ناوها", "رویدادها", "یاسین‌هاب"):
+    for text in ("نمای کلی", "یاسین‌هاب"):
         assert text in html
+    # Observer entries were intentionally removed from the sidebar UI.
+    for text in ("اجراها", "ناوها", "رویدادها"):
+        assert text not in html
     assert 'href="ui20.css"' in html
     assert 'src="ui20.js"' in html
 
@@ -48,8 +51,11 @@ def test_progressive_table_tools_and_persian_layer():
     assert "آنلاین" in ui
 
 
-def test_app_keeps_observer_event_fetch():
+def test_app_keeps_overview_fetch():
+    # Observer pages (executions/fleets/events) were intentionally removed
+    # from the PWA UI; app.js now renders the overview/Control Plane surface
+    # only, so it must not reference the removed Observer fetch paths.
     app = _r(D / "app.js")
-    assert "listEvents" in app
+    assert "listEvents" not in app
     assert "renderOverview" in app
     assert "getSystemDashboard" in app

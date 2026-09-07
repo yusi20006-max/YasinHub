@@ -38,9 +38,11 @@ def test_dashboard_index_serves_spa_shell():
     assert 'id="content"' in body
     assert 'id="sidebar"' in body
     assert 'data-nav="overview"' in body
-    assert 'data-nav="executions"' in body
-    assert 'data-nav="fleets"' in body
-    assert 'data-nav="events"' in body
+    # Observer entries (executions/fleets/events) were intentionally removed
+    # from the PWA sidebar; only the overview nav remains.
+    assert 'data-nav="executions"' not in body
+    assert 'data-nav="fleets"' not in body
+    assert 'data-nav="events"' not in body
     assert 'type="module" src="app.js"' in body
     assert "connection-status" in body
     assert "stale-indicator" in body
@@ -160,7 +162,7 @@ def test_app_js_boot_and_route_render():
     content = _read(DASHBOARD / "app.js")
     assert "renderRoute" in content
     assert "onRouteChange" in content or "parseRoute" in content
-    assert "listExecutions" in content or "getJSON" in content
+    assert "getSystemDashboard" in content
     assert "stale" in content.lower()
     assert "offline" in content.lower()
     # No WebSocket / auth / control in foundation

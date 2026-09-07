@@ -57,15 +57,18 @@ def test_views_control_buttons_and_confirm():
 
 
 def test_app_js_wires_controls_and_reconciles():
-    content = _read(DASH / "app.js")
-    assert "handleControlClick" in content
-    assert "wireControls" in content
-    assert "formatControlError" in content
-    assert "pauseExecution" in content
-    assert "cancelFleet" in content
-    # Reconcile from server after control
-    assert "soft: true" in content
-    assert "window.confirm" in content
+    # Execution-detail control wiring was removed with the Observer pages.
+    # Control Plane lifecycle wiring lives in service-controls.js on the
+    # overview services table; app.js keeps soft-reconcile after polling.
+    app = _read(DASH / "app.js")
+    assert "soft: true" in app
+    sc = _read(DASH / "service-controls.js")
+    assert "data-service-action" in sc
+    for action in ("start", "stop", "restart"):
+        assert action in sc
+    # Reconcile from server after control + confirm for destructive actions
+    assert "refresh-btn" in sc or "refreshOverview" in sc
+    assert "window.confirm" in sc
 
 
 def test_style_control_bar_present():

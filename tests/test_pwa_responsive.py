@@ -37,12 +37,17 @@ def test_skip_link_does_not_extend_scrollable_area():
 
 
 def test_drawer_and_backdrop_have_no_hardcoded_header_offset():
+    # Main now removes the mobile drawer entirely (#178: nav-toggle hidden,
+    # sidebar display:none at <=800px), which supersedes the earlier
+    # full-height drawer fix. What must hold: no hardcoded 64px offsets
+    # anywhere, and nothing drawer-related left in the mobile document flow.
     style = _r("style.css")
     assert "inset:64px" not in style
     assert "top:64px" not in style
-    # full-height fixed drawer above the sticky header; out of document
-    # flow so open/close cannot create horizontal overflow or blank gaps
-    assert ".sidebar{position:fixed;top:0;right:0;bottom:0" in style
+    assert ".sidebar{display:none}" in style
+    assert ".nav-toggle{display:none}" in style
+    # desktop sidebar + fullscreen backdrop rules remain intact
+    assert ".sidebar{width:220px;flex-shrink:0" in style
     assert ".nav-backdrop.visible{display:block;position:fixed;inset:0" in style
 
 
