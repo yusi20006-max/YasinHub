@@ -1,4 +1,6 @@
-const CACHE_NAME = "yasinhub-dashboard-v3";
+const CACHE_PREFIX = "yasinhub-dashboard-";
+const FALLBACK_CACHE_NAME = `${CACHE_PREFIX}v1.0.0-build-unknown`;
+let CACHE_NAME = FALLBACK_CACHE_NAME;
 
 // Keep the shell aligned with index.html. HTML and executable assets use
 // network-first below so a deploy can never be masked by an older cache.
@@ -20,9 +22,26 @@ const ASSETS = [
   "/dashboard/icon-512.png",
 ];
 
+async function resolveCacheName() {
+  try {
+    const response = await fetch("/api/version", { cache: "no-store" });
+    if (!response.ok) return FALLBACK_CACHE_NAME;
+    const info = await response.json();
+    const version = String(info.pwa_version || "unknown").replace(/[^a-zA-Z0-9._-]/g, "_");
+    const build = String(info.build || "unknown").replace(/[^a-zA-Z0-9._-]/g, "_");
+    return `${CACHE_PREFIX}v${version}-build-${build}`;
+  } catch (_) {
+    return FALLBACK_CACHE_NAME;
+  }
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
+    resolveCacheName()
+      .then((name) => {
+        CACHE_NAME = name;
+        return caches.open(CACHE_NAME);
+      })
       .then((cache) => Promise.all(ASSETS.map((asset) => cache.add(asset).catch(() => undefined))))
       .then(() => self.skipWaiting())
   );
@@ -30,9 +49,13 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys()
+    resolveCacheName()
+      .then((name) => {
+        CACHE_NAME = name;
+        return caches.keys();
+      })
       .then((keys) => Promise.all(
-        keys.map((key) => key.startsWith("yasinhub-dashboard-") && key !== CACHE_NAME
+        keys.map((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME
           ? caches.delete(key)
           : undefined)
       ))
