@@ -13,6 +13,7 @@ from ..report import build_report
 from ..registry import default_registry
 from ..service_manager import start_service, stop_service, restart_service
 from ..pid_store import read_pid, is_pid_alive
+from ..pwa_version import version_payload
 from .service_control_helpers import service_runtime_snapshot, status_project_payload
 
 
@@ -170,6 +171,10 @@ class YasinHubHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed_url = urlparse(self.path)
         clean_path = parsed_url.path
+
+        if clean_path == "/api/version":
+            self.send_json(version_payload())
+            return
 
         from .control_routes import handle_control_api_routes
         if handle_control_api_routes(
