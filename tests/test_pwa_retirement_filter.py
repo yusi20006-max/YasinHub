@@ -58,3 +58,22 @@ def test_active_controls_intact():
     assert "decorateServices" in content
     views = _read(JS / "views.js")
     assert "renderOverview" in views
+
+
+def test_summary_mirrors_backend_buckets_over_visible_set():
+    content = _read(DASH / "app.js")
+    assert "summarizeProjects" in content
+    # Same buckets as server.py /api/dashboard: RUNNING / SUCCESS / FAILED / else unknown.
+    assert '"RUNNING"' in content
+    assert '"SUCCESS"' in content
+    assert '"FAILED"' in content
+    assert "total_projects" in content
+    assert "summarizeProjects(visible)" in content
+
+
+def test_summary_fail_open_preserves_legacy_behavior():
+    content = _read(DASH / "app.js")
+    # Services fetch failure (or unknown entries) must not break the dashboard:
+    # summary falls back to the backend payload, rows fall back to unfiltered.
+    assert "backendSummary" in content
+    assert "serviceStates ? summarizeProjects(visible) : backendSummary" in content
