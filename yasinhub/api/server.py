@@ -288,11 +288,12 @@ class YasinHubHandler(BaseHTTPRequestHandler):
                     "name": p.name,
                     "description": p.description,
                     "path": p.path,
+                    "enabled": getattr(p, "enabled", True),
                     "controls": [
                         "start",
                         "stop",
                         "restart"
-                    ]
+                    ] if getattr(p, "enabled", True) else []
                 })
 
             self.send_json({

@@ -35,6 +35,10 @@ class ProjectEntry:
     description: str = ""
     start_command: Optional[str] = None
     stop_command: Optional[str] = None
+    # Retirement contract: optional, defaults to runnable. Entries loaded
+    # from legacy configs without this field behave exactly as before.
+    # When False, the Hub lists the entry but never spawns it as a daemon.
+    enabled: bool = True
 
 
 DEFAULT_PROJECTS: List[ProjectEntry] = [
@@ -49,7 +53,8 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         name="eitaa_news_v2",
         process_pattern="eitaa_news_v2.py",
         description="بات خبری RSS -> @yusinews",
-        start_command="python3 eitaa_news_v2.py"
+        start_command="python3 eitaa_news_v2.py",
+        enabled=False,
     ),
     ProjectEntry(
         name="yasinrelay",
@@ -80,7 +85,8 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         name="yasin-coder",
         process_pattern="yasin_coder.cli",
         description="دستیار کدنویسی یاسین",
-        start_command="python3 -m yasin_coder.cli"
+        start_command="python3 -m yasin_coder.cli",
+        enabled=False,
     ),
     ProjectEntry(
         name="yasinpress",
@@ -93,7 +99,8 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         name="backup_manager",
         process_pattern="backup_manager.py",
         description="مدیریت پشتیبان‌گیری خودکار اکوسیستم",
-        start_command="python3 backup_manager.py"
+        start_command="python3 backup_manager.py",
+        enabled=False,
     ),
 ]
 
@@ -128,6 +135,7 @@ def load_config(config_path: Optional[Path] = None) -> List[ProjectEntry]:
                         "description": p.description,
                         "start_command": p.start_command,
                         "stop_command": p.stop_command,
+                        "enabled": p.enabled,
                     }
                     for p in DEFAULT_PROJECTS
                 ]
