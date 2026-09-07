@@ -36,6 +36,60 @@ const appState = {
 };
 
 function $(id) { return document.getElementById(id); }
+/**
+ * Retirement filter (canonical signal only — never display-text matching).
+ * A service is hidden from the dashboard iff the registry advertises it as
+ * retired (`enabled === false` in /api/services). Unknown names and fetch
+ * failures fail open to the legacy behavior (show everything).
+ */
+function buildServiceStates(servicesResult) {
+  const states = {};
+  const list = servicesResult && servicesResult.ok && servicesResult.data && Array.isArray(servicesResult.data.services)
+    ? servicesResult.data.services
+    : null;
+  if (!list) return null;
+  list.forEach((svc) => {
+    if (svc && svc.name != null) states[String(svc.name)] = { enabled: svc.enabled !== false };
+  });
+  return states;
+}
+function isRetiredServiceName(serviceStates, name) {
+  if (!serviceStates) return false;
+  const entry = serviceStates[String(name)];
+  return Boolean(entry && entry.enabled === false);
+}
+function visibleProjects(projects, serviceStates) {
+  if (!Array.isArray(projects)) return [];
+  if (!serviceStates) return projects;
+  return projects.filter((p) => !isRetiredServiceName(serviceStates, p && p.name));
+}
+/**
+ * Summary mirror of the backend /api/dashboard buckets
+ * (server.py: RUNNING / SUCCESS / FAILED / else unknown), computed over the
+ * VISIBLE (non-retired) set so cards and counters stay consistent.
+ * Post aggregates use the same db_stats summation; retired entries carry
+ * none, so visible-only totals equal backend totals for actives.
+ */
+function summarizeProjects(projects) {
+  const summary = { total_projects: 0, running: 0, success: 0, failed: 0, unknown: 0, total_posts: 0, published_posts: 0, pending_posts: 0 };
+  if (!Array.isArray(projects)) return summary;
+  summary.total_projects = projects.length;
+  projects.forEach((p) => {
+    const raw = p && (p.status != null ? p.status : p.health_state);
+    const st = String(raw != null ? raw : "UNKNOWN");
+    if (st === "RUNNING") summary.running += 1;
+    else if (st === "SUCCESS") summary.success += 1;
+    else if (st === "FAILED") summary.failed += 1;
+    else summary.unknown += 1;
+    const db = p && p.db_stats;
+    if (db) {
+      summary.total_posts += Number(db.total_posts) || 0;
+      summary.published_posts += Number(db.published_posts) || 0;
+      summary.pending_posts += Number(db.pending_posts) || 0;
+    }
+  });
+  return summary;
+}
 function setConnectionStatus() {
   const el = $("connection-status");
   if (!el) return;
@@ -106,12 +160,17 @@ async function renderRoute(route, { soft = false } = {}) {
   const gen = ++appState.fetchGen;
   try {
     if (route.name === "overview") {
-      const [result, statusResult] = await Promise.all([api.getSystemDashboard(), api.getSystemStatus()]);
+      const [result, statusResult, servicesResult] = await Promise.all([api.getSystemDashboard(), api.getSystemStatus(), api.getServices()]);
       if (gen !== appState.fetchGen) return;
       if (result.offline) { renderError(content, "Offline — cannot load system status.", true); setStale(true); appState.hasContent = false; return; }
       if (!result.ok) { renderError(content, result.message || "Failed to load system status."); setStale(true); appState.hasContent = false; return; }
       const projects = statusResult && statusResult.ok && statusResult.data && Array.isArray(statusResult.data.projects) ? statusResult.data.projects : [];
-      renderOverview(content, result.data, projects);
+      const serviceStates = buildServiceStates(servicesResult);
+      try { window.__yasinhubServiceStates = serviceStates; } catch (_) {}
+      const visible = visibleProjects(projects, serviceStates);
+      const backendSummary = result.data && result.data.dashboard ? result.data.dashboard : null;
+      const data = result.data ? { ...result.data, dashboard: serviceStates ? summarizeProjects(visible) : backendSummary } : result.data;
+      renderOverview(content, data, visible);
       appState.fetchedAt = Date.now(); appState.hasContent = true; setStale(false); updateMetaRow(); return;
     }
     if (route.name === "executions") {

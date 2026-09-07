@@ -223,6 +223,10 @@ def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
 
 def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
     """شروع اجرای یک سرویس در پس‌زمینه."""
+    if not getattr(project, "enabled", True):
+        print(f"سرویس {project.name} غیرفعال (retired) است؛ به‌عنوان دیمون اجرا نمی‌شود.")
+        return False
+
     if not project.start_command:
         print(f"خطا: دستور شروع برای سرویس {project.name} تعریف نشده است.")
         return False
@@ -287,6 +291,7 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
             shell=False,
             cwd=project.path if project.path else None,
             env=env,
+            stdin=subprocess.DEVNULL,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,

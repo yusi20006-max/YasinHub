@@ -69,6 +69,7 @@ class ConfigManager:
                     "description": p.description,
                     "start_command": p.start_command,
                     "stop_command": p.stop_command,
+                    "enabled": p.enabled,
                 }
                 for p in DEFAULT_PROJECTS
             ]
@@ -128,6 +129,10 @@ class ConfigManager:
                     val = proj.get(field)
                     if val is not None and not isinstance(val, str):
                         raise ValidationError(f"فیلد {field} در پروژه '{name}' باید رشته باشد.")
+
+                # Retirement contract: optional bool; absent means runnable (legacy behavior).
+                if "enabled" in proj and not isinstance(proj["enabled"], bool):
+                    raise ValidationError(f"فیلد enabled در پروژه '{name}' باید بولی باشد.")
 
     def reload_config(self) -> Dict[str, Any]:
         """بازخوانی مجدد پیکربندی در زمان اجرا"""
@@ -193,6 +198,7 @@ class ConfigManager:
                     description=item.get("description", ""),
                     start_command=item.get("start_command"),
                     stop_command=item.get("stop_command"),
+                    enabled=item.get("enabled", True),
                 )
             )
         return projects_list
