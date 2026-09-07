@@ -51,6 +51,31 @@ When building native extensions, C libraries, or Rust/PyO3 components in a Termu
 
 ---
 
+## Canonical YasinHub Runtime Entry Point
+
+For the YasinHub HTTP API and PWA Dashboard on Termux, the canonical runtime entry point is:
+
+```bash
+cd ~/yasineco/YasinHub
+python -c 'from yasinhub.api.server import run; run()'
+```
+
+The server binds to `0.0.0.0:8000`. When the server is running locally, the PWA Dashboard is available at:
+
+```text
+http://127.0.0.1:8000/dashboard/
+```
+
+This entry point was **verified successfully on a real Android/Termux environment** on 2026-09-07.
+
+Important distinctions:
+
+- `python -m yasinhub` is **not** a valid runtime entry point because the `yasinhub` package does not provide `yasinhub.__main__`.
+- `python -m yasinhub.cli` is the YasinHub CLI entry point for service/status operations; it is not the HTTP server entry point.
+- The HTTP server is started through `yasinhub.api.server.run()`.
+
+---
+
 ## Known Limitations & Considerations
 
 1. **Background Execution:** Android battery optimization may terminate background processes if Termux is placed into deep sleep without wake-locks (`termux-wake-lock`).
