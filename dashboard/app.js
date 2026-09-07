@@ -36,6 +36,33 @@ const appState = {
 };
 
 function $(id) { return document.getElementById(id); }
+/**
+ * Retirement filter (canonical signal only — never display-text matching).
+ * A service is hidden from the dashboard iff the registry advertises it as
+ * retired (`enabled === false` in /api/services). Unknown names and fetch
+ * failures fail open to the legacy behavior (show everything).
+ */
+function buildServiceStates(servicesResult) {
+  const states = {};
+  const list = servicesResult && servicesResult.ok && servicesResult.data && Array.isArray(servicesResult.data.services)
+    ? servicesResult.data.services
+    : null;
+  if (!list) return null;
+  list.forEach((svc) => {
+    if (svc && svc.name != null) states[String(svc.name)] = { enabled: svc.enabled !== false };
+  });
+  return states;
+}
+function isRetiredServiceName(serviceStates, name) {
+  if (!serviceStates) return false;
+  const entry = serviceStates[String(name)];
+  return Boolean(entry && entry.enabled === false);
+}
+function visibleProjects(projects, serviceStates) {
+  if (!Array.isArray(projects)) return [];
+  if (!serviceStates) return projects;
+  return projects.filter((p) => !isRetiredServiceName(serviceStates, p && p.name));
+}
 function setConnectionStatus() {
   const el = $("connection-status");
   if (!el) return;
@@ -106,12 +133,14 @@ async function renderRoute(route, { soft = false } = {}) {
   const gen = ++appState.fetchGen;
   try {
     if (route.name === "overview") {
-      const [result, statusResult] = await Promise.all([api.getSystemDashboard(), api.getSystemStatus()]);
+      const [result, statusResult, servicesResult] = await Promise.all([api.getSystemDashboard(), api.getSystemStatus(), api.getServices()]);
       if (gen !== appState.fetchGen) return;
       if (result.offline) { renderError(content, "Offline — cannot load system status.", true); setStale(true); appState.hasContent = false; return; }
       if (!result.ok) { renderError(content, result.message || "Failed to load system status."); setStale(true); appState.hasContent = false; return; }
       const projects = statusResult && statusResult.ok && statusResult.data && Array.isArray(statusResult.data.projects) ? statusResult.data.projects : [];
-      renderOverview(content, result.data, projects);
+      const serviceStates = buildServiceStates(servicesResult);
+      try { window.__yasinhubServiceStates = serviceStates; } catch (_) {}
+      renderOverview(content, result.data, visibleProjects(projects, serviceStates));
       appState.fetchedAt = Date.now(); appState.hasContent = true; setStale(false); updateMetaRow(); return;
     }
     if (route.name === "executions") {

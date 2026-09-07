@@ -86,6 +86,7 @@ export async function getFleet(taskId) {
 
 export async function getSystemDashboard() { return getJSON("/api/dashboard"); }
 export async function getSystemStatus() { return getJSON("/api/status"); }
+export async function getServices() { return getJSON("/api/services"); }
 export async function getHealth() { return getJSON("/api/health"); }
 
 export async function postJSON(path, body) {

@@ -73,6 +73,19 @@ async function handleAction(button){
   setFeedback(container,formatAuthoritativeResult(action,result.data));
   await refreshOverview();
 }
+function serviceStates(){
+  try {
+    const states = window.__yasinhubServiceStates;
+    if (states && typeof states === "object") return states;
+  } catch (_) {}
+  return null;
+}
+function isRetiredService(service){
+  const states = serviceStates();
+  if (!states) return false;
+  const entry = states[String(service)];
+  return Boolean(entry && entry.enabled === false);
+}
 function decorateServices(){
   const table=document.querySelector('table[aria-label="Services status"]');
   if(!table)return;
@@ -84,6 +97,12 @@ function decorateServices(){
   table.querySelectorAll("tbody tr").forEach(row=>{
     const service=row.querySelector('td[data-label="Service"] strong')?.textContent?.trim();
     if(!service)return;
+    const retired=isRetiredService(service);
+    const staleCell=row.querySelector("[data-service-controls]");
+    if(retired){
+      if(staleCell) staleCell.remove();
+      return;
+    }
     const status=getRowStatus(row);
     const normalized=normalizeStatus(status);
     const existing=row.querySelector("[data-service-controls]");
