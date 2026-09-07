@@ -43,7 +43,19 @@
       <div id="content" class="content" aria-live="polite"><div class="state state-loading">در حال بارگذاری…</div></div>
     </main>
   </div>
+  <footer class="pwa-version" aria-label="نسخه برنامه">
+    <span id="pwa-version">PWA v… · Build …</span>
+  </footer>
   <div id="toast-host" class="toast-host" aria-live="polite" aria-relevant="additions"></div>
+  <script>
+    fetch("/api/version", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("version unavailable")))
+      .then((info) => {
+        const el = document.getElementById("pwa-version");
+        if (el) el.textContent = `PWA v${info.pwa_version || "unknown"} · Build ${info.build || "unknown"}`;
+      })
+      .catch(() => {});
+  </script>
   <script type="module" src="app.js"></script>
   <script type="module" src="chat.js"></script>
   <script type="module" src="ui20.js"></script>
