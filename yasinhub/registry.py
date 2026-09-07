@@ -41,9 +41,9 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasinfeed",
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasinfeed-main"),
-        process_pattern="yasinfeed.py",
+        process_pattern="yasinfeed.main",
         description="سرویس فید خوان یاسین (YasinFeed)",
-        start_command="python3 yasinfeed.py"
+        start_command="env YASINFEED_PORT=8101 python3 -m yasinfeed.main"
     ),
     ProjectEntry(
         name="eitaa_news_v2",
@@ -84,9 +84,10 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ),
     ProjectEntry(
         name="yasinpress",
+        path=str(YASIN_ECOSYSTEM_ROOT / "YasinPress-Rewrite-"),
         process_pattern="yasinpress.cli",
         description="سیستم مدیریت و انتشار محتوای یاسین",
-        start_command="python3 -m yasinpress.cli"
+        start_command="python3 -m yasinpress.cli.main run"
     ),
     ProjectEntry(
         name="backup_manager",

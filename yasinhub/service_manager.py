@@ -287,6 +287,7 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
             shell=False,
             cwd=project.path if project.path else None,
             env=env,
+            stdin=subprocess.DEVNULL,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,
