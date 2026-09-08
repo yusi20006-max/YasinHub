@@ -1,7 +1,6 @@
 """
 config_manager.py
 لایه مدیریت پیکربندی مرکزی YasinHub.
-پشتیبانی از لود کردن کانفیگ از فایل، بازنویسی با متغیرهای محیطی، اعتبار سنجی و دسترسی زمان اجرا.
 """
 
 from __future__ import annotations
@@ -17,17 +16,14 @@ try:
 except ImportError:
     yaml = None
 
-# پیش‌فرض‌ها
 DEFAULT_CONFIG_DIR = Path(os.environ.get("YASINHUB_CONFIG_DIR", str(Path.home() / ".yasinhub")))
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.yaml"
 
 
 class ValidationError(ValueError):
-    """خطای اعتبارسنجی پیکربندی"""
     pass
 
 
-# ساختار کل پروژه برای سازگاری عقب‌رو
 @dataclass
 class ProjectConfig:
     name: str
@@ -44,21 +40,15 @@ class ConfigManager:
         self.load_config()
 
     def load_config(self) -> Dict[str, Any]:
-        """لود کردن پیکربندی از فایل YAML و بازنویسی با متغیرهای محیطی"""
         config_data: Dict[str, Any] = {"projects": []}
-
-        # لود از فایل در صورت وجود
         if yaml is not None and self.config_path.exists():
             try:
-                content = self.config_path.read_text(encoding="utf-8")
-                loaded = yaml.safe_load(content)
+                loaded = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
                     config_data.update(loaded)
             except Exception as e:
-                # در صورت خراب بودن فایل، لاگ یا خطا داده شود، اما متوقف نشود
                 print(f"هشدار: خطا در خواندن فایل پیکربندی: {e}", file=sys.stderr)
 
-        # اعمال مقادیر پیش‌فرض اگر پروژه‌ای تعریف نشده باشد
         if not config_data.get("projects"):
             from .registry import DEFAULT_PROJECTS
             config_data["projects"] = [
@@ -77,141 +67,97 @@ class ConfigManager:
                 for p in DEFAULT_PROJECTS
             ]
         else:
-            # Backfill the dedicated HTTP port contract (Issue #179) for
-            # stored configs predating host/port/health_endpoint fields.
-            # Stale files keep working; runtime sees the canonical contract.
+            # Canonical port metadata is authoritative. A stale local config
+            # must not resurrect a retired/synthetic HTTP port assignment.
             from .ports import health_endpoint_for, host_for, port_for
-
             for proj in config_data["projects"]:
                 if not isinstance(proj, dict) or not proj.get("name"):
                     continue
-                if proj.get("host") is None:
-                    canonical_host = host_for(proj["name"])
-                    if canonical_host is not None:
-                        proj["host"] = canonical_host
-                if proj.get("port") is None:
-                    canonical_port = port_for(proj["name"])
-                    if canonical_port is not None:
-                        proj["port"] = canonical_port
-                if proj.get("health_endpoint") is None:
-                    canonical_endpoint = health_endpoint_for(proj["name"])
-                    if canonical_endpoint is not None:
-                        proj["health_endpoint"] = canonical_endpoint
+                name = proj["name"]
+                canonical_port = port_for(name)
+                canonical_host = host_for(name)
+                canonical_endpoint = health_endpoint_for(name)
+                proj["port"] = canonical_port
+                proj["host"] = canonical_host
+                proj["health_endpoint"] = canonical_endpoint
+                # Migrate the known broken Agent command from Issue #179's
+                # first registry revision. Do not manufacture a virtualenv.
+                if name == "yasin-agent" and proj.get("start_command") == ".venv/bin/python -m agent_platform.server":
+                    proj["start_command"] = "python3 -m agent_platform.server.app"
+                if name == "yasinfeed":
+                    stored = proj.get("path")
+                    if stored and str(stored).endswith("/Yasinfeed-main"):
+                        proj["path"] = str(Path(stored).with_name("Yasinfeed"))
 
-        # مدیریت متغیرهای محیطی با بالاترین اولویت
-        # YASIN_STATUS_DIR یا YASINHUB_STATUS_DIR
         status_dir_env = os.environ.get("YASIN_STATUS_DIR") or os.environ.get("YASINHUB_STATUS_DIR")
         if status_dir_env:
             config_data["status_dir"] = status_dir_env
-
         logs_dir_env = os.environ.get("YASINHUB_LOGS_DIR")
         if logs_dir_env:
             config_data["logs_dir"] = logs_dir_env
-
-        # مقداردهی پیش‌فرض‌ها در صورت عدم وجود
         if "status_dir" not in config_data:
             config_data["status_dir"] = str(Path.home() / ".yasin_status")
         if "logs_dir" not in config_data:
             config_data["logs_dir"] = str(Path.home() / ".yasinhub" / "logs")
 
-        # اعتبارسنجی
         self.validate_config(config_data)
-
         self._config = config_data
         return self._config
 
     def validate_config(self, data: Dict[str, Any]) -> None:
-        """اعتبارسنجی مقادیر، ساختار و نوع داده‌های پیکربندی"""
         if not isinstance(data, dict):
             raise ValidationError("پیکربندی باید یک دیکشنری معتبر باشد.")
-
-        # بررسی فیلدهای ریشه
         if "status_dir" in data and not isinstance(data["status_dir"], str):
             raise ValidationError("فیلد status_dir باید رشته باشد.")
         if "logs_dir" in data and not isinstance(data["logs_dir"], str):
             raise ValidationError("فیلد logs_dir باید رشته باشد.")
-
         if "projects" in data:
             if not isinstance(data["projects"], list):
                 raise ValidationError("فیلد projects باید لیستی از پروژه‌ها باشد.")
-
             seen_names = set()
             for idx, proj in enumerate(data["projects"]):
                 if not isinstance(proj, dict):
                     raise ValidationError(f"پروژه با ایندکس {idx} باید یک دیکشنری باشد.")
-
                 name = proj.get("name")
                 if not name or not isinstance(name, str):
                     raise ValidationError(f"پروژه با ایندکس {idx} فاقد نام معتبر (رشته غیر خالی) است.")
-
                 if name in seen_names:
                     raise ValidationError(f"نام پروژه '{name}' تکراری است.")
                 seen_names.add(name)
-
-                # اعتبارسنجی نوع فیلدهای اختیاری پروژه
-                for field in ("path", "process_pattern", "description", "start_command", "stop_command",
-                              "host", "health_endpoint"):
+                for field in ("path", "process_pattern", "description", "start_command", "stop_command", "host", "health_endpoint"):
                     val = proj.get(field)
                     if val is not None and not isinstance(val, str):
                         raise ValidationError(f"فیلد {field} در پروژه '{name}' باید رشته باشد.")
-
-                # Dedicated HTTP port contract (Issue #179): optional int;
-                # absent means portless (e.g. YasinRelay).
                 if "port" in proj and proj["port"] is not None:
                     if not isinstance(proj["port"], int) or isinstance(proj["port"], bool):
                         raise ValidationError(f"فیلد port در پروژه '{name}' باید عدد صحیح باشد.")
                     if not 1 <= proj["port"] <= 65535:
                         raise ValidationError(f"فیلد port در پروژه '{name}' خارج از محدوده معتبر است.")
-
-                # Retirement contract: optional bool; absent means runnable (legacy behavior).
                 if "enabled" in proj and not isinstance(proj["enabled"], bool):
                     raise ValidationError(f"فیلد enabled در پروژه '{name}' باید بولی باشد.")
 
     def reload_config(self) -> Dict[str, Any]:
-        """بازخوانی مجدد پیکربندی در زمان اجرا"""
         return self.load_config()
 
     def get_config(self) -> Dict[str, Any]:
-        """دریافت کل پیکربندی زمان اجرا"""
         return self._config
 
     def get_status_dir(self) -> Path:
-        """دریافت دایرکتوری وضعیت‌ها"""
-        path_str = self._config.get("status_dir") or str(Path.home() / ".yasin_status")
-        return Path(os.path.expanduser(path_str))
+        return Path(os.path.expanduser(self._config.get("status_dir") or str(Path.home() / ".yasin_status")))
 
     def get_logs_dir(self) -> Path:
-        """دریافت دایرکتوری لاگ‌ها"""
-        path_str = self._config.get("logs_dir") or str(Path.home() / ".yasinhub" / "logs")
-        return Path(os.path.expanduser(path_str))
+        return Path(os.path.expanduser(self._config.get("logs_dir") or str(Path.home() / ".yasinhub" / "logs")))
 
     @staticmethod
     def _canonical_project_path(path: Optional[str]) -> Optional[str]:
-        """Resolve legacy ecosystem paths against the canonical ~/YasinEco root.
-
-        Existing user configuration may still contain the former ~/yasin-ecosystem
-        root, the legacy lowercase ~/yasineco root, or legacy *-main directory
-        names. Runtime resolution honors the ecosystem path contract without
-        requiring manual edits to ~/.yasinhub/config.yaml.
-
-        Compatibility is preserved: when the canonical candidate does not exist
-        but the stored legacy path does, the legacy path is kept so existing
-        checkouts keep working.
-        """
         if not path:
             return path
-
         from .registry import YASIN_ECOSYSTEM_ROOT
-
         expanded = Path(os.path.expanduser(path))
-
-        # Already under the canonical root: keep as-is (still apply
-        # *-main handling below).
         try:
             is_canonical = expanded == YASIN_ECOSYSTEM_ROOT or YASIN_ECOSYSTEM_ROOT in expanded.parents
         except Exception:
             is_canonical = False
-
         if is_canonical:
             candidate = expanded
         else:
@@ -221,45 +167,26 @@ class ConfigManager:
                 if legacy_marker in parts:
                     idx = parts.index(legacy_marker)
                     relative_parts = parts[idx + 1 :]
-                    if relative_parts:
-                        candidate = YASIN_ECOSYSTEM_ROOT.joinpath(*relative_parts)
-                    else:
-                        candidate = YASIN_ECOSYSTEM_ROOT
+                    candidate = YASIN_ECOSYSTEM_ROOT.joinpath(*relative_parts) if relative_parts else YASIN_ECOSYSTEM_ROOT
                     break
             if candidate is None:
                 candidate = expanded
-
         if candidate.exists():
             return str(candidate)
-
         if candidate.name.endswith("-main"):
             canonical = candidate.with_name(candidate.name[:-5])
             if canonical.exists():
                 return str(canonical)
-
-        # Compatibility fallback: keep a working legacy checkout when the
-        # canonical candidate is missing.
         if candidate != expanded and expanded.exists():
             return str(expanded)
-
         return str(candidate)
 
     def get_projects(self) -> List[ProjectConfig]:
-        """دریافت پروژه‌ها به صورت کلاس دیتا"""
         from .ports import health_endpoint_for, host_for, port_for
         from .registry import ProjectEntry
         projects_list = []
         for item in self._config.get("projects", []):
             name = item["name"]
-            host = item.get("host")
-            if host is None:
-                host = host_for(name)
-            port = item.get("port")
-            if port is None:
-                port = port_for(name)
-            health_endpoint = item.get("health_endpoint")
-            if health_endpoint is None:
-                health_endpoint = health_endpoint_for(name)
             projects_list.append(
                 ProjectEntry(
                     name=name,
@@ -269,15 +196,14 @@ class ConfigManager:
                     start_command=item.get("start_command"),
                     stop_command=item.get("stop_command"),
                     enabled=item.get("enabled", True),
-                    host=host,
-                    port=port,
-                    health_endpoint=health_endpoint,
+                    host=host_for(name),
+                    port=port_for(name),
+                    health_endpoint=health_endpoint_for(name),
                 )
             )
         return projects_list
 
 
-# یک نمونه واحد جهانی (Singleton) از مدیر پیکربندی برای کل برنامه
 _manager = ConfigManager()
 
 
