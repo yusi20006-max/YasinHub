@@ -154,11 +154,16 @@ class ConfigManager:
 
     @staticmethod
     def _canonical_project_path(path: Optional[str]) -> Optional[str]:
-        """Resolve legacy ecosystem paths against the canonical ~/yasineco root.
+        """Resolve legacy ecosystem paths against the canonical ~/YasinEco root.
 
         Existing user configuration may still contain the former ~/yasin-ecosystem
-        root or legacy *-main directory names. Runtime resolution honors the
-        ecosystem path contract without requiring manual edits to ~/.yasinhub/config.yaml.
+        root, the legacy lowercase ~/yasineco root, or legacy *-main directory
+        names. Runtime resolution honors the ecosystem path contract without
+        requiring manual edits to ~/.yasinhub/config.yaml.
+
+        Compatibility is preserved: when the canonical candidate does not exist
+        but the stored legacy path does, the legacy path is kept so existing
+        checkouts keep working.
         """
         if not path:
             return path
@@ -166,14 +171,30 @@ class ConfigManager:
         from .registry import YASIN_ECOSYSTEM_ROOT
 
         expanded = Path(os.path.expanduser(path))
-        parts = expanded.parts
-        legacy_marker = "yasin-ecosystem"
-        if legacy_marker in parts:
-            idx = parts.index(legacy_marker)
-            relative_parts = parts[idx + 1 :]
-            candidate = YASIN_ECOSYSTEM_ROOT.joinpath(*relative_parts)
-        else:
+
+        # Already under the canonical root: keep as-is (still apply
+        # *-main handling below).
+        try:
+            is_canonical = expanded == YASIN_ECOSYSTEM_ROOT or YASIN_ECOSYSTEM_ROOT in expanded.parents
+        except Exception:
+            is_canonical = False
+
+        if is_canonical:
             candidate = expanded
+        else:
+            parts = expanded.parts
+            candidate = None
+            for legacy_marker in ("yasin-ecosystem", "yasineco"):
+                if legacy_marker in parts:
+                    idx = parts.index(legacy_marker)
+                    relative_parts = parts[idx + 1 :]
+                    if relative_parts:
+                        candidate = YASIN_ECOSYSTEM_ROOT.joinpath(*relative_parts)
+                    else:
+                        candidate = YASIN_ECOSYSTEM_ROOT
+                    break
+            if candidate is None:
+                candidate = expanded
 
         if candidate.exists():
             return str(candidate)
@@ -182,6 +203,11 @@ class ConfigManager:
             canonical = candidate.with_name(candidate.name[:-5])
             if canonical.exists():
                 return str(canonical)
+
+        # Compatibility fallback: keep a working legacy checkout when the
+        # canonical candidate is missing.
+        if candidate != expanded and expanded.exists():
+            return str(expanded)
 
         return str(candidate)
 

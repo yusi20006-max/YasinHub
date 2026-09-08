@@ -145,7 +145,7 @@ def test_global_singleton_apis(tmp_path, monkeypatch):
 
 
 def test_legacy_ecosystem_path_resolves_to_canonical_root(tmp_path, monkeypatch):
-    """Legacy ~/yasin-ecosystem paths must resolve to the canonical ~/yasineco tree."""
+    """Legacy ~/yasin-ecosystem paths must resolve to the canonical ~/YasinEco tree."""
     from yasinhub import config_manager
     from yasinhub import registry
 
@@ -186,3 +186,28 @@ def test_canonical_path_is_unchanged(tmp_path, monkeypatch):
 
     manager = ConfigManager(config_path=config_file)
     assert manager.get_projects()[0].path == str(canonical_agent)
+
+
+def test_legacy_lowercase_yasineco_resolves_to_canonical_root(tmp_path, monkeypatch):
+    """Legacy lowercase ~/yasineco paths must resolve to the canonical ~/YasinEco tree."""
+    from yasinhub import registry
+
+    canonical_root = tmp_path / "YasinEco"
+    canonical_relay = canonical_root / "YasinRelay"
+    canonical_relay.mkdir(parents=True)
+    monkeypatch.setattr(registry, "YASIN_ECOSYSTEM_ROOT", canonical_root)
+
+    config_file = tmp_path / "legacy-lowercase.yaml"
+    config_file.write_text(yaml.dump({
+        "projects": [{
+            "name": "yasinrelay",
+            "path": str(Path.home() / "yasineco" / "YasinRelay"),
+            "process_pattern": "yasinrelay.cli",
+            "start_command": ".venv/bin/yasinrelay-termux run --schedule --non-interactive",
+        }]
+    }), encoding="utf-8")
+
+    manager = ConfigManager(config_path=config_file)
+    project = manager.get_projects()[0]
+
+    assert project.path == str(canonical_relay)

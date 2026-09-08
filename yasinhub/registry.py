@@ -19,8 +19,8 @@ try:
 except ImportError:
     yaml = None
 
-# قرارداد canonical اکوسیستم YASIN: تمام repositoryها زیر ~/yasineco هستند.
-YASIN_ECOSYSTEM_ROOT = Path(os.environ.get("YASIN_ECOSYSTEM_ROOT", str(Path.home() / "yasineco"))).expanduser()
+# قرارداد canonical اکوسیستم YASIN: تمام repositoryها زیر ~/YasinEco هستند.
+YASIN_ECOSYSTEM_ROOT = Path(os.environ.get("YASIN_ECOSYSTEM_ROOT", str(Path.home() / "YasinEco"))).expanduser()
 
 # مسیر پیش‌فرض فایل پیکربندی مرکزی
 DEFAULT_CONFIG_DIR = Path(os.environ.get("YASINHUB_CONFIG_DIR", str(Path.home() / ".yasinhub")))

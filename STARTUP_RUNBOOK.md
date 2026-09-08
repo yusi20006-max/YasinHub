@@ -7,8 +7,8 @@
 - Android/Termux یا Linux
 - Python 3.9+
 - مخزن‌ها در مسیر پیش‌فرض اکوسیستم:
-  - `~/yasineco/YasinHub`
-  - `~/yasineco/Yasin-agent`
+  - `~/YasinEco/YasinHub`
+  - `~/YasinEco/Yasin-agent`
 - برای نصب وابستگی‌ها، اینترنت و دسترسی pip لازم است.
 
 YasinHub به `pyyaml` و `rich` نیاز دارد و تست توسعه با `pytest` انجام می‌شود.
@@ -16,7 +16,7 @@ YasinHub به `pyyaml` و `rich` نیاز دارد و تست توسعه با `py
 ## 2. ورود به مخزن
 
 ```bash
-cd ~/yasineco/YasinHub
+cd ~/YasinEco/YasinHub
 ```
 
 بررسی:
@@ -73,7 +73,7 @@ export YASIN_AGENT_SERVICE_TOKEN='YOUR_TOKEN'
 از داخل مخزن:
 
 ```bash
-cd ~/yasineco/YasinHub
+cd ~/YasinEco/YasinHub
 python -m yasinhub.api.server
 ```
 
@@ -113,7 +113,7 @@ curl -i http://127.0.0.1:8000/api/services
 مسیر استاندارد Control Plane این است که Agent را خود YasinHub مدیریت کند:
 
 ```bash
-cd ~/yasineco/YasinHub
+cd ~/YasinEco/YasinHub
 python -m yasinhub.cli start yasin-agent
 ```
 
@@ -163,7 +163,7 @@ python -m yasinhub.cli status
 اگر لازم شد Agent مستقل از Hub اجرا شود:
 
 ```bash
-cd ~/yasineco/Yasin-agent
+cd ~/YasinEco/Yasin-agent
 export YASIN_AGENT_SERVICE_TOKEN='YOUR_TOKEN'
 .venv/bin/python -m agent_platform.server
 ```
@@ -181,7 +181,7 @@ export YASIN_AGENT_SERVICE_TOKEN='YOUR_TOKEN'
 ابتدا Agent را از طریق Hub متوقف کنید:
 
 ```bash
-cd ~/yasineco/YasinHub
+cd ~/YasinEco/YasinHub
 python -m yasinhub.cli stop yasin-agent
 ```
 
@@ -201,7 +201,7 @@ python -m yasinhub.cli stop yasin-agent
 ## 14. چک‌لیست شروع سریع دفعه بعد
 
 ```text
-[ ] cd ~/yasineco/YasinHub
+[ ] cd ~/YasinEco/YasinHub
 [ ] git status
 [ ] Python/venv آماده است
 [ ] pip install -e . در صورت نیاز

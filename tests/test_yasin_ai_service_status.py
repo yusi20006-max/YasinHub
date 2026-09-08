@@ -9,7 +9,7 @@ from yasinhub.service_manager import start_service
 def test_yasin_ai_registry_uses_long_running_canonical_command():
     project = next(p for p in DEFAULT_PROJECTS if p.name == "yasin-ai")
 
-    assert project.path == str(Path.home() / "yasineco" / "Yasin-AI")
+    assert project.path == str(Path.home() / "YasinEco" / "Yasin-AI")
     assert project.process_pattern == "yasinai.cli.main serve"
     assert project.start_command == "yasin serve"
 
