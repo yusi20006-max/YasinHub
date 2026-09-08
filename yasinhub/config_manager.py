@@ -70,9 +70,33 @@ class ConfigManager:
                     "start_command": p.start_command,
                     "stop_command": p.stop_command,
                     "enabled": p.enabled,
+                    "host": p.host,
+                    "port": p.port,
+                    "health_endpoint": p.health_endpoint,
                 }
                 for p in DEFAULT_PROJECTS
             ]
+        else:
+            # Backfill the dedicated HTTP port contract (Issue #179) for
+            # stored configs predating host/port/health_endpoint fields.
+            # Stale files keep working; runtime sees the canonical contract.
+            from .ports import health_endpoint_for, host_for, port_for
+
+            for proj in config_data["projects"]:
+                if not isinstance(proj, dict) or not proj.get("name"):
+                    continue
+                if proj.get("host") is None:
+                    canonical_host = host_for(proj["name"])
+                    if canonical_host is not None:
+                        proj["host"] = canonical_host
+                if proj.get("port") is None:
+                    canonical_port = port_for(proj["name"])
+                    if canonical_port is not None:
+                        proj["port"] = canonical_port
+                if proj.get("health_endpoint") is None:
+                    canonical_endpoint = health_endpoint_for(proj["name"])
+                    if canonical_endpoint is not None:
+                        proj["health_endpoint"] = canonical_endpoint
 
         # مدیریت متغیرهای محیطی با بالاترین اولویت
         # YASIN_STATUS_DIR یا YASINHUB_STATUS_DIR
@@ -125,10 +149,19 @@ class ConfigManager:
                 seen_names.add(name)
 
                 # اعتبارسنجی نوع فیلدهای اختیاری پروژه
-                for field in ("path", "process_pattern", "description", "start_command", "stop_command"):
+                for field in ("path", "process_pattern", "description", "start_command", "stop_command",
+                              "host", "health_endpoint"):
                     val = proj.get(field)
                     if val is not None and not isinstance(val, str):
                         raise ValidationError(f"فیلد {field} در پروژه '{name}' باید رشته باشد.")
+
+                # Dedicated HTTP port contract (Issue #179): optional int;
+                # absent means portless (e.g. YasinRelay).
+                if "port" in proj and proj["port"] is not None:
+                    if not isinstance(proj["port"], int) or isinstance(proj["port"], bool):
+                        raise ValidationError(f"فیلد port در پروژه '{name}' باید عدد صحیح باشد.")
+                    if not 1 <= proj["port"] <= 65535:
+                        raise ValidationError(f"فیلد port در پروژه '{name}' خارج از محدوده معتبر است.")
 
                 # Retirement contract: optional bool; absent means runnable (legacy behavior).
                 if "enabled" in proj and not isinstance(proj["enabled"], bool):
@@ -213,18 +246,32 @@ class ConfigManager:
 
     def get_projects(self) -> List[ProjectConfig]:
         """دریافت پروژه‌ها به صورت کلاس دیتا"""
+        from .ports import health_endpoint_for, host_for, port_for
         from .registry import ProjectEntry
         projects_list = []
         for item in self._config.get("projects", []):
+            name = item["name"]
+            host = item.get("host")
+            if host is None:
+                host = host_for(name)
+            port = item.get("port")
+            if port is None:
+                port = port_for(name)
+            health_endpoint = item.get("health_endpoint")
+            if health_endpoint is None:
+                health_endpoint = health_endpoint_for(name)
             projects_list.append(
                 ProjectEntry(
-                    name=item["name"],
+                    name=name,
                     path=self._canonical_project_path(item.get("path")),
                     process_pattern=item.get("process_pattern"),
                     description=item.get("description", ""),
                     start_command=item.get("start_command"),
                     stop_command=item.get("stop_command"),
                     enabled=item.get("enabled", True),
+                    host=host,
+                    port=port,
+                    health_endpoint=health_endpoint,
                 )
             )
         return projects_list

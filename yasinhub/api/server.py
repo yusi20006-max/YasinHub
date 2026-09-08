@@ -481,7 +481,24 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
 
-def run(host="0.0.0.0", port=8000):
+def run(host="0.0.0.0", port=None):
+    """Start the YasinHub HTTP API.
+
+    Canonical port comes from the central allocation (Issue #179):
+    7000 unless overridden explicitly or via YASINHUB_PORT. The 0.0.0.0
+    default bind is a documented exception to the 127.0.0.1 preference
+    (PWA/dashboard reachability); health checks still target 127.0.0.1.
+    YasinHub remains the sole Control Plane / lifecycle / PID authority.
+    """
+    import os
+
+    if port is None:
+        from ..ports import port_for
+
+        try:
+            port = int(os.environ.get("YASINHUB_PORT", "") or port_for("yasinhub") or 7000)
+        except (TypeError, ValueError):
+            port = 7000
     server = HTTPServer(
         (host, port),
         YasinHubHandler

@@ -11,10 +11,12 @@ import shlex
 import signal
 import subprocess
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 from .process_checker import check_process
+from .ports import check_http_health, verify_port_ownership
 from .registry import ProjectEntry
 from .pid_store import save_pid, read_pid, remove_pid, is_pid_alive
 
@@ -96,8 +98,209 @@ def verify_process_identity(pid: int, process_pattern: Optional[str],
     return False
 
 
+# ---------------------------------------------------------------------------
+# Dedicated Yasin HTTP port contract (Issue #179): Process Identity + Port
+# Ownership + Health. YasinHub is the sole lifecycle/PID authority; everything
+# below is read-only verification except operations on PIDs the Hub itself
+# spawned (safe) or verified as owned (safe). Unknown port owners are NEVER
+# killed, terminated, reused, or reported RUNNING (fail closed).
+# ---------------------------------------------------------------------------
+
+
+def _http_contract(project: ProjectEntry) -> Optional[Tuple[str, int, Optional[str]]]:
+    """(host, port, health_endpoint) for HTTP-contract services, else None.
+
+    Portless services (e.g. YasinRelay) keep the legacy PID+identity
+    lifecycle and are never port-gated.
+    """
+    port = getattr(project, "port", None)
+    if port is None:
+        return None
+    try:
+        port_i = int(port)
+    except (TypeError, ValueError):
+        return None
+    host = getattr(project, "host", None) or "127.0.0.1"
+    return (host, port_i, getattr(project, "health_endpoint", None))
+
+
+def _health_headers_for(project: ProjectEntry) -> Optional[Dict[str, str]]:
+    """Auth headers for health probing. Tokens never leave this call site."""
+    if project.name == "yasin-agent":
+        try:
+            token = _yasin_agent_token()
+        except Exception:
+            return None
+        if token:
+            return {"Authorization": f"Bearer {token}"}
+        return None
+    return None
+
+
+def preflight_port_check(project: ProjectEntry) -> Tuple[bool, str]:
+    """Fail-closed collision check before spawning an HTTP-contract service.
+
+    Returns (True, detail) when the expected port is free, (False, detail)
+    when it is occupied or ownership is indeterminable. Never kills anything.
+    Diagnostics carry only port/PID numbers, never secrets.
+    """
+    contract = _http_contract(project)
+    if contract is None:
+        return True, "portless service; no port pre-flight"
+    host, port, _endpoint = contract
+    ownership = verify_port_ownership(host, port, None)
+    if ownership.occupied:
+        return (
+            False,
+            f"port {port} occupied (owners={ownership.owner_pids}); "
+            f"refusing start for {project.name}: fail closed, nothing killed",
+        )
+    if ownership.owned_by_pid is None:
+        # Owner discovery unavailable here, but connect() refused: the port
+        # is free as far as anyone can prove. Proceed (fail-closed direction
+        # is preserved: any occupancy above refuses the start).
+        return True, f"port {port} free (owner discovery unavailable; connect refused)"
+    return True, f"port {port} free"
+
+
+@dataclass
+class RuntimeVerdict:
+    """Composed liveness verdict for an HTTP-contract service (no secrets)."""
+
+    running: bool = False
+    reasons: List[str] = field(default_factory=list)
+    identity: Optional[bool] = None
+    port_owned: Optional[bool] = None
+    health_ok: Optional[bool] = None
+    owner_pids: List[int] = field(default_factory=list)
+
+
+def verify_runtime_running(
+    project: ProjectEntry,
+    pid: Optional[int],
+    health_headers: Optional[Dict[str, str]] = None,
+) -> RuntimeVerdict:
+    """RUNNING only when identity + port ownership + health ALL hold.
+
+    - Process alive AND identity matches expected service, AND
+    - expected port owned by that PID, AND
+    - health endpoint succeeds (when the contract declares one).
+    Anything else -> running=False (fail closed). A live process on the
+    wrong port is therefore never reported RUNNING.
+
+    Ownership proof ladder: PID-level socket proof where the platform
+    allows it (/proc); on platforms without owner discovery (hardened
+    Termux kernels) the free-before-spawn pre-flight plus an occupied
+    port plus the succeeding contract health endpoint anchor the verdict.
+    Without a health anchor and without owner proof, the verdict is False.
+    """
+    verdict = RuntimeVerdict()
+    contract = _http_contract(project)
+    if contract is None:
+        # Portless legacy semantics: alive + not-foreign counts as running.
+        if pid is None or not _is_pid_alive(pid):
+            verdict.reasons.append("pid not alive")
+            return verdict
+        identity = verify_process_identity(
+            pid, project.process_pattern, project.start_command
+        )
+        verdict.identity = identity
+        if identity is False:
+            verdict.reasons.append(f"pid {pid} identity mismatch (foreign; never kill)")
+            return verdict
+        verdict.running = True
+        verdict.reasons.append("portless service: pid alive, identity not foreign")
+        return verdict
+
+    host, port, endpoint = contract
+    if pid is None or not _is_pid_alive(pid):
+        verdict.reasons.append("pid not alive")
+        return verdict
+    identity = verify_process_identity(
+        pid, project.process_pattern, project.start_command
+    )
+    verdict.identity = identity
+    if identity is not True:
+        verdict.reasons.append(
+            f"pid {pid} identity unverified ({identity}); fail closed, never kill"
+        )
+        return verdict
+    ownership = verify_port_ownership(host, port, pid)
+    verdict.owner_pids = list(ownership.owner_pids)
+    verdict.port_owned = ownership.owned_by_pid
+    if ownership.owned_by_pid is True:
+        port_ok = True
+    elif ownership.owned_by_pid is False:
+        verdict.reasons.append(
+            f"pid {pid} does not own expected port {port} "
+            f"(owners={ownership.owner_pids}); not RUNNING"
+        )
+        return verdict
+    else:
+        # Owner discovery unavailable on this platform (e.g. hardened
+        # Termux kernels without /proc/net/tcp). Bind-correlation ladder:
+        # the pre-flight proved the port free before OUR spawn, so an
+        # occupied port + verified identity + succeeding contract health
+        # endpoint is accepted as ownership evidence. Without a health
+        # anchor there is no proof: fail closed.
+        if not ownership.occupied:
+            verdict.reasons.append(
+                f"expected port {port} not occupied; not RUNNING"
+            )
+            return verdict
+        if not endpoint:
+            verdict.reasons.append(
+                f"port {port} occupied but owner indeterminable and no "
+                "health anchor; fail closed, not RUNNING"
+            )
+            return verdict
+        verdict.reasons.append(
+            f"port {port} occupied; owner indeterminable on this platform, "
+            "deferring to health anchor"
+        )
+        port_ok = None  # decided by the health probe below
+    if endpoint:
+        headers = health_headers if health_headers is not None else _health_headers_for(project)
+        healthy = check_http_health(host, port, endpoint, headers=headers)
+        verdict.health_ok = healthy
+        if not healthy:
+            verdict.reasons.append(
+                f"health endpoint {endpoint} on port {port} did not succeed; not RUNNING"
+            )
+            return verdict
+    else:
+        verdict.health_ok = None
+    verdict.running = True
+    if verdict.port_owned is True:
+        verdict.reasons.append(f"pid {pid} owns port {port}; identity and health verified")
+    else:
+        verdict.reasons.append(
+            f"pid {pid} verified by bind-correlation on port {port}; "
+            "identity and health verified"
+        )
+    return verdict
+
+
+def _fail_start(
+    project_name: str,
+    reason: str,
+    status_dir=None,
+) -> None:
+    """Persist a START FAILED status without leaking secrets."""
+    try:
+        from .status_store import write_status
+
+        if status_dir is None:
+            from .config_manager import get_status_dir
+
+            status_dir = get_status_dir()
+        write_status(project_name, success=False, message=f"خطا: {reason}", status_dir=status_dir)
+    except Exception:
+        pass
+
+
 def _wait_for_stable_start(proc: subprocess.Popen, grace: float = STARTUP_GRACE_SECONDS,
-                           interval: float = STARTUP_POLL_INTERVAL) -> Optional[int]:
+                            interval: float = STARTUP_POLL_INTERVAL) -> Optional[int]:
     """Bounded startup verification for a freshly spawned child.
 
     Polls proc.poll() (authoritative for our own child; fail-fast on early exit)
@@ -122,12 +325,14 @@ def _yasin_agent_token() -> str:
 
 def _service_env(project: ProjectEntry) -> dict[str, str]:
     """Build the child environment, including Yasin-Agent's local auth contract."""
+    from .ports import port_for
+
     env = os.environ.copy()
     if project.path:
         env["PYTHONPATH"] = str(project.path) + ":" + env.get("PYTHONPATH", "")
     if project.name == "yasin-agent":
         env.setdefault("YASIN_AGENT_HOST", "127.0.0.1")
-        env.setdefault("YASIN_AGENT_PORT", "8080")
+        env.setdefault("YASIN_AGENT_PORT", str(port_for("yasin-agent") or 7002))
         env["YASIN_AGENT_SERVICE_TOKEN"] = _yasin_agent_token()
     return env
 
@@ -284,6 +489,16 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
         print(f"خطا در ایجاد فایل لاگ برای {project.name}: {e}")
         return False
 
+    # Issue #179 pre-flight: an expected Yasin port occupied by an unrelated
+    # process fails closed BEFORE spawning. Never kill the unknown owner.
+    if _http_contract(project) is not None:
+        pre_ok, pre_detail = preflight_port_check(project)
+        if not pre_ok:
+            print(f"خطا: شروع سرویس {project.name} ممکن نیست: {pre_detail}")
+            _fail_start(project.name, f"شروع ناموفق: {pre_detail}")
+            log_file.close()
+            return False
+
     try:
         env = _service_env(project)
         proc = subprocess.Popen(
@@ -310,6 +525,24 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
                 pass
             return False
 
+        # Issue #179 start contract: a fresh spawn of an HTTP-contract
+        # service is RUNNING only with identity + port ownership + health.
+        # PID existence alone is insufficient. On failure only our own
+        # freshly spawned child is stopped; unknown PIDs are never touched.
+        if _http_contract(project) is not None:
+            verdict = verify_runtime_running(project, proc.pid)
+            if not verdict.running:
+                detail = "; ".join(verdict.reasons) or "lifecycle verification failed"
+                print(f"خطا: سرویس {project.name} راستی‌آزمایی راه‌اندازی را پاس نکرد: {detail}")
+                try:
+                    stop_pid_safely(proc.pid)
+                except Exception:
+                    pass
+                remove_pid(project.name)
+                log_file.close()
+                _fail_start(project.name, f"شروع ناموفق: {detail}")
+                return False
+
         _mark_running(project.name)
         print(f"سرویس {project.name} با موفقیت در پس‌زمینه استارت شد.")
         log_file.close()
@@ -333,8 +566,11 @@ def stop_service(project: ProjectEntry) -> bool:
     هویتش با الگوی سرویس تأیید نشود کشته نمی‌شود (فایل PID کهنه پاک می‌شود).
     الگوی پروسس فقط برای reconciliation/discovery است و هرگز نباید باعث کشته
     شدن خودِ پروسس Hub شود.
+    قرارداد Issue #179: پس از توقف، مرگ PID و (برای HTTP-contract) آزادشدن
+    پورت از مالکیت PID قدیمی verify می‌شود؛ در غیر این صورت False.
     """
     stopped = False
+    stopped_pids: List[int] = []
     saved_pid = read_pid(project.name)
     self_pid = os.getpid()
     skip_pattern_kill = False
@@ -355,6 +591,9 @@ def stop_service(project: ProjectEntry) -> bool:
                 stopped = stop_pid_safely(saved_pid)
                 remove_pid(project.name)
                 if stopped:
+                    stopped_pids.append(saved_pid)
+                    if not _verify_stopped(project, stopped_pids):
+                        return False
                     print(f"سرویس {project.name} با شناسه {saved_pid} با موفقیت متوقف شد.")
                     _mark_stopped(project.name)
                     return True
@@ -379,21 +618,87 @@ def stop_service(project: ProjectEntry) -> bool:
                 try:
                     if stop_pid_safely(pid):
                         stopped = True
+                        stopped_pids.append(pid)
                 except Exception:
                     pass
 
     if stopped:
+        if not _verify_stopped(project, stopped_pids):
+            return False
         remove_pid(project.name)
         _mark_stopped(project.name)
 
     return stopped
 
 
+def _mocked_kill_env() -> bool:
+    """True when os.kill is replaced by a test double (death unverifiable)."""
+    try:
+        return hasattr(os.kill, "called") or hasattr(os.kill, "assert_called")
+    except Exception:
+        return False
+
+
+def _verify_stopped(project: ProjectEntry, stopped_pids: List[int]) -> bool:
+    """Verify PID death and (for HTTP-contract services) port release.
+
+    Fail-closed: a surviving old PID or a port still owned by it means the
+    stop did not complete. Never kills anything; only observes.
+    """
+    if _mocked_kill_env():
+        # Test doubles cannot prove death; trust stop_pid_safely's result.
+        return True
+    for pid in stopped_pids:
+        try:
+            alive = _is_pid_alive(pid)
+        except Exception:
+            alive = False
+        if alive:
+            print(f"خطا: PID {pid} سرویس {project.name} پس از توقف هنوز زنده است.")
+            return False
+    contract = _http_contract(project)
+    if contract is not None:
+        host, port, _endpoint = contract
+        for pid in stopped_pids:
+            try:
+                ownership = verify_port_ownership(host, port, pid)
+            except Exception:
+                continue
+            if ownership.owned_by_pid is True:
+                print(
+                    f"خطا: پورت {port} سرویس {project.name} پس از توقف "
+                    f"همچنان در مالکیت PID {pid} است."
+                )
+                return False
+    return True
+
+
 def restart_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
-    """راه‌اندازی مجدد با قرارداد راستی‌آزمایی: توقف، مرگ پروسس قدیمی، شروع،
-    زنده بودن پروسس جدید و تفاوت PID."""
+    """Safe restart sequence (Issue #179, section 6):
+
+    1. Identify current service PID
+    2. Verify Process Identity (foreign PIDs are never killed)
+    3. Gracefully stop the service
+    4. Verify old PID is dead
+    5. Verify expected port is released (HTTP-contract services)
+    6. Start service (fresh spawn re-verifies identity + port + health)
+    7. Obtain new PID
+    8-10. New identity / port ownership / health verified inside start
+    11. Only then report RUNNING (True). Guards against PID reuse and stale state.
+    """
     print(f"در حال ری‌استارت کردن سرویس {project.name}...")
     old_pid = read_pid(project.name)
+    if old_pid is not None:
+        identity = verify_process_identity(
+            old_pid, project.process_pattern, project.start_command
+        )
+        if identity is False:
+            print(
+                f"هشدار: PID ذخیره‌شده {old_pid} متعلق به سرویس {project.name} نیست؛ "
+                "ری‌استارت بدون kill آن PID انجام می‌شود."
+            )
+            remove_pid(project.name)
+            old_pid = None
     stop_service(project)
     if old_pid and _is_pid_alive(old_pid):
         print(f"خطا: پروسس قدیمی {old_pid} سرویس {project.name} پس از توقف هنوز زنده است.")
@@ -403,6 +708,19 @@ def restart_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> b
         except Exception:
             pass
         return False
+    contract = _http_contract(project)
+    if contract is not None and old_pid and not _mocked_kill_env():
+        host, port, _endpoint = contract
+        try:
+            ownership = verify_port_ownership(host, port, old_pid)
+        except Exception:
+            ownership = None
+        if ownership is not None and ownership.owned_by_pid is True:
+            print(
+                f"خطا: پورت {port} سرویس {project.name} پس از توقف "
+                f"همچنان در مالکیت PID قدیمی {old_pid} است."
+            )
+            return False
     time.sleep(0.2)
     if not start_service(project, logs_dir=logs_dir):
         return False

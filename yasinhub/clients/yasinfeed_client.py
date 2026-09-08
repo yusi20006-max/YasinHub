@@ -4,7 +4,14 @@ import urllib.request
 
 class YasinFeedClient:
 
-    def __init__(self, base_url="http://127.0.0.1:8000"):
+    def __init__(self, base_url=None):
+        if base_url is None:
+            try:
+                from ..ports import host_for, port_for
+
+                base_url = f"http://{host_for('yasinfeed') or '127.0.0.1'}:{port_for('yasinfeed') or 7004}"
+            except Exception:
+                base_url = "http://127.0.0.1:7004"
         self.base_url = base_url.rstrip("/")
 
 

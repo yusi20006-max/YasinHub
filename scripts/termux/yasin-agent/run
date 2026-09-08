@@ -26,7 +26,9 @@ if [ -z "${YASIN_AGENT_SERVICE_TOKEN:-}" ]; then
 fi
 
 export YASIN_AGENT_HOST="${YASIN_AGENT_HOST:-127.0.0.1}"
-export YASIN_AGENT_PORT="${YASIN_AGENT_PORT:-8080}"
+# Canonical allocation (Issue #179): Yasin-Agent -> 7002. Env override keeps
+# backward compatibility with existing deployments.
+export YASIN_AGENT_PORT="${YASIN_AGENT_PORT:-7002}"
 
 # Refuse to start a second listener if something already holds the port.
 if command -v ss >/dev/null 2>&1; then

@@ -80,7 +80,7 @@ python -m yasinhub.api.server
 سرور باید روی این آدرس در دسترس باشد:
 
 ```text
-http://127.0.0.1:8000
+http://127.0.0.1:7000
 ```
 
 این ترمینال را باز نگه دارید.
@@ -90,7 +90,7 @@ http://127.0.0.1:8000
 در ترمینال دوم:
 
 ```bash
-curl -i http://127.0.0.1:8000/api/health
+curl -i http://127.0.0.1:7000/api/health
 ```
 
 انتظار:
@@ -103,7 +103,7 @@ HTTP 200
 سپس:
 
 ```bash
-curl -i http://127.0.0.1:8000/api/services
+curl -i http://127.0.0.1:7000/api/services
 ```
 
 باید سرویس‌های اکوسیستم، از جمله `yasin-agent`، در خروجی دیده شوند.
@@ -127,8 +127,8 @@ python -m yasinhub.cli status
 
 ```bash
 TOKEN="$(cat ~/.yasinhub/yasin-agent.token)"
-curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/v1/health
-curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/v1/ready
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7002/v1/health
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7002/v1/ready
 ```
 
 هر دو باید پاسخ موفق بدهند و `ready` برای readiness برابر `true` باشد.
@@ -138,7 +138,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/v1/ready
 مرورگر را روی این آدرس باز کنید:
 
 ```text
-http://127.0.0.1:8000/dashboard/
+http://127.0.0.1:7000/dashboard/
 ```
 
 بعد از هر عملیات Start/Stop/Restart، Dashboard و Status باید دوباره از API خوانده شوند.
@@ -174,7 +174,7 @@ export YASIN_AGENT_SERVICE_TOKEN='YOUR_TOKEN'
 .venv/bin/yasin-agent-server
 ```
 
-این حالت نباید هم‌زمان با Agent مدیریت‌شده توسط Hub اجرا شود؛ در غیر این صورت ممکن است Port 8080 یا Process تکراری ایجاد شود.
+این حالت نباید هم‌زمان با Agent مدیریت‌شده توسط Hub اجرا شود؛ در غیر این صورت ممکن است Port 7002 یا Process تکراری ایجاد شود.
 
 ## 12. توقف کامل
 
@@ -189,8 +189,11 @@ python -m yasinhub.cli stop yasin-agent
 
 ## 13. نکات مهم ثبت‌شده از اجرای واقعی
 
-- پورت YasinHub API: `8000`
-- پورت HTTP Yasin-Agent: `8080`
+- پورت YasinHub API: `7000`
+- پورت HTTP Yasin-Agent: `7002`
+- قرارداد مرکزی پورت‌ها (Issue #179): محدوده اختصاصی `7000–7099`؛ تخصیص
+  canonical در `yasinhub/ports.py` و مستندات کامل در `docs/YASIN_SERVICE_PORTS.md`.
+  YasinRelay پورت HTTP ندارد (worker) و launcher آن بدون تغییر است.
 - Entry point معتبر Agent: `python -m agent_platform.server`
 - Yasin-Agent نیازمند `YASIN_AGENT_SERVICE_TOKEN` است.
 - Hub می‌تواند توکن Agent را از `~/.yasinhub/yasin-agent.token` مدیریت کند.

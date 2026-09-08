@@ -19,6 +19,13 @@ try:
 except ImportError:
     yaml = None
 
+from .ports import (
+    YASIN_RESERVED_SERVICE_PORT_RANGE,
+    health_endpoint_for,
+    host_for,
+    port_for,
+)
+
 # قرارداد canonical اکوسیستم YASIN: تمام repositoryها زیر ~/YasinEco هستند.
 YASIN_ECOSYSTEM_ROOT = Path(os.environ.get("YASIN_ECOSYSTEM_ROOT", str(Path.home() / "YasinEco"))).expanduser()
 
@@ -39,6 +46,12 @@ class ProjectEntry:
     # from legacy configs without this field behave exactly as before.
     # When False, the Hub lists the entry but never spawns it as a daemon.
     enabled: bool = True
+    # Dedicated Yasin HTTP port contract (Issue #179). The central allocation
+    # in yasinhub.ports is the single source of truth; these fields are
+    # populated from it. None means portless (e.g. YasinRelay, a worker).
+    host: Optional[str] = None
+    port: Optional[int] = None
+    health_endpoint: Optional[str] = None
 
 
 DEFAULT_PROJECTS: List[ProjectEntry] = [
@@ -47,7 +60,10 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasinfeed-main"),
         process_pattern="yasinfeed.main",
         description="سرویس فید خوان یاسین (YasinFeed)",
-        start_command="env YASINFEED_PORT=8101 python3 -m yasinfeed.main"
+        start_command=f"env YASINFEED_PORT={port_for('yasinfeed')} python3 -m yasinfeed.main",
+        host=host_for("yasinfeed"),
+        port=port_for("yasinfeed"),
+        health_endpoint=health_endpoint_for("yasinfeed"),
     ),
     ProjectEntry(
         name="eitaa_news_v2",
@@ -65,13 +81,20 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         # fall into CLI configuration prompts. The Termux launcher also
         # preserves the Python runtime preload required by Yasin-AI.
         start_command=".venv/bin/yasinrelay-termux run --schedule --non-interactive",
+        # YasinRelay is a worker, not an HTTP server: portless by contract.
+        host=None,
+        port=None,
+        health_endpoint=None,
     ),
     ProjectEntry(
         name="yasin-agent",
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-agent"),
         process_pattern="agent_platform.server",
         description="Yasin-Agent HTTP runtime (production: supervised by runit/termux-services)",
-        start_command=".venv/bin/python -m agent_platform.server"
+        start_command=".venv/bin/python -m agent_platform.server",
+        host=host_for("yasin-agent"),
+        port=port_for("yasin-agent"),
+        health_endpoint=health_endpoint_for("yasin-agent"),
     ),
     ProjectEntry(
         name="yasin-ai",
@@ -79,7 +102,10 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         # Yasin-AI's production supervisor loop is the long-running `serve` command.
         process_pattern="yasinai.cli.main serve",
         description="موتور اصلی هوش مصنوعی یاسین",
-        start_command="yasin serve"
+        start_command="yasin serve",
+        host=host_for("yasin-ai"),
+        port=port_for("yasin-ai"),
+        health_endpoint=health_endpoint_for("yasin-ai"),
     ),
     ProjectEntry(
         name="yasin-coder",
@@ -87,13 +113,19 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         description="دستیار کدنویسی یاسین",
         start_command="python3 -m yasin_coder.cli",
         enabled=False,
+        host=host_for("yasin-coder"),
+        port=port_for("yasin-coder"),
+        health_endpoint=health_endpoint_for("yasin-coder"),
     ),
     ProjectEntry(
         name="yasinpress",
         path=str(YASIN_ECOSYSTEM_ROOT / "YasinPress-Rewrite-"),
         process_pattern="yasinpress.cli",
         description="سیستم مدیریت و انتشار محتوای یاسین",
-        start_command="python3 -m yasinpress.cli.main run"
+        start_command="python3 -m yasinpress.cli.main run",
+        host=host_for("yasinpress"),
+        port=port_for("yasinpress"),
+        health_endpoint=health_endpoint_for("yasinpress"),
     ),
     ProjectEntry(
         name="backup_manager",
@@ -136,6 +168,9 @@ def load_config(config_path: Optional[Path] = None) -> List[ProjectEntry]:
                         "start_command": p.start_command,
                         "stop_command": p.stop_command,
                         "enabled": p.enabled,
+                        "host": p.host,
+                        "port": p.port,
+                        "health_endpoint": p.health_endpoint,
                     }
                     for p in DEFAULT_PROJECTS
                 ]

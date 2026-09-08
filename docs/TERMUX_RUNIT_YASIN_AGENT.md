@@ -11,7 +11,7 @@ runsv yasin-agent
     ↓
 ~/yasineco/Yasin-agent/.venv/bin/python -m agent_platform.server
     ↓
-127.0.0.1:8080   (Authorization: Bearer <canonical token>)
+127.0.0.1:7002   (Authorization: Bearer <canonical token>)
 
 YasinHub ── authenticated HTTP ──► Yasin-Agent
 ```
@@ -27,7 +27,7 @@ YasinHub ── authenticated HTTP ──► Yasin-Agent
 | **`yasinhub.cli start yasin-agent`** | Idempotent — does not spawn if already running |
 
 Install script stops orphan `agent_platform.server` processes so runit owns the only instance.
-The `run` script refuses bind when port 8080 is already in use.
+The `run` script refuses bind when port 7002 is already in use.
 
 ## Token contract
 
@@ -57,10 +57,10 @@ If you briefly see `warning: yasin-agent/log: unable to open supervise/ok`, re-c
 ```bash
 TOKEN=$(tr -d '\n\r' < ~/.yasinhub/yasin-agent.token)
 # Unauthenticated → 401
-curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/v1/health
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7002/v1/health
 # Authenticated → healthy / ready
-curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/v1/health
-curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/v1/ready
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7002/v1/health
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7002/v1/ready
 ```
 
 ## Single-instance

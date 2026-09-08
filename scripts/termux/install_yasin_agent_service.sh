@@ -14,7 +14,7 @@ HUB_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SERVICE_SRC="${HUB_ROOT}/scripts/termux/yasin-agent"
 SERVICE_NAME="yasin-agent"
 SERVICE_DIR="${PREFIX}/var/service/${SERVICE_NAME}"
-PORT="${YASIN_AGENT_PORT:-8080}"
+PORT="${YASIN_AGENT_PORT:-7002}"
 
 echo "Installing ${SERVICE_NAME} service from ${SERVICE_SRC}"
 echo "Agent root (canonical): ${AGENT_ROOT}"

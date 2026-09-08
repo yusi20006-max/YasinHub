@@ -60,10 +60,10 @@ cd ~/yasineco/YasinHub
 python -c 'from yasinhub.api.server import run; run()'
 ```
 
-The server binds to `0.0.0.0:8000`. When the server is running locally, the PWA Dashboard is available at:
+The server binds to `0.0.0.0:7000`. When the server is running locally, the PWA Dashboard is available at:
 
 ```text
-http://127.0.0.1:8000/dashboard/
+http://127.0.0.1:7000/dashboard/
 ```
 
 This entry point was **verified successfully on a real Android/Termux environment** on 2026-09-07.
