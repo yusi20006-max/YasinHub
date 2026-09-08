@@ -1,10 +1,10 @@
 """
 registry.py
-فهرست پروژه‌هایی که YasinHub وضعیت‌شان را نشان می‌دهد: نام، الگوی
-پروسس (برای process_checker)، و توضیح کوتاه.
+فهرست پروژه‌هایی که YasinHub وضعیت‌شان را نشان می‌دهد.
 
-این فهرست از یک فایل کانفیگ (YAML) بارگذاری می‌شود؛ با پس‌روی به لیست
-پیش‌فرض در صورت نبود فایل پیکربندی.
+The registry is the lifecycle source of truth. HTTP port metadata is supplied
+by yasinhub.ports; worker/CLI services remain portless until an actual HTTP
+runtime is verified.
 """
 
 from __future__ import annotations
@@ -19,18 +19,14 @@ try:
 except ImportError:
     yaml = None
 
-from .ports import (
-    YASIN_RESERVED_SERVICE_PORT_RANGE,
-    health_endpoint_for,
-    host_for,
-    port_for,
+from .ports import health_endpoint_for, host_for, port_for
+
+YASIN_ECOSYSTEM_ROOT = Path(
+    os.environ.get("YASIN_ECOSYSTEM_ROOT", str(Path.home() / "YasinEco"))
+).expanduser()
+DEFAULT_CONFIG_DIR = Path(
+    os.environ.get("YASINHUB_CONFIG_DIR", str(Path.home() / ".yasinhub"))
 )
-
-# قرارداد canonical اکوسیستم YASIN: تمام repositoryها زیر ~/YasinEco هستند.
-YASIN_ECOSYSTEM_ROOT = Path(os.environ.get("YASIN_ECOSYSTEM_ROOT", str(Path.home() / "YasinEco"))).expanduser()
-
-# مسیر پیش‌فرض فایل پیکربندی مرکزی
-DEFAULT_CONFIG_DIR = Path(os.environ.get("YASINHUB_CONFIG_DIR", str(Path.home() / ".yasinhub")))
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.yaml"
 
 
@@ -42,13 +38,7 @@ class ProjectEntry:
     description: str = ""
     start_command: Optional[str] = None
     stop_command: Optional[str] = None
-    # Retirement contract: optional, defaults to runnable. Entries loaded
-    # from legacy configs without this field behave exactly as before.
-    # When False, the Hub lists the entry but never spawns it as a daemon.
     enabled: bool = True
-    # Dedicated Yasin HTTP port contract (Issue #179). The central allocation
-    # in yasinhub.ports is the single source of truth; these fields are
-    # populated from it. None means portless (e.g. YasinRelay, a worker).
     host: Optional[str] = None
     port: Optional[int] = None
     health_endpoint: Optional[str] = None
@@ -57,7 +47,7 @@ class ProjectEntry:
 DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasinfeed",
-        path=str(YASIN_ECOSYSTEM_ROOT / "Yasinfeed-main"),
+        path=str(YASIN_ECOSYSTEM_ROOT / "Yasinfeed"),
         process_pattern="yasinfeed.main",
         description="سرویس فید خوان یاسین (YasinFeed)",
         start_command=f"env YASINFEED_PORT={port_for('yasinfeed')} python3 -m yasinfeed.main",
@@ -77,11 +67,7 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         path=str(YASIN_ECOSYSTEM_ROOT / "YasinRelay"),
         process_pattern="yasinrelay.cli",
         description="تلگرام -> AI -> ایتا",
-        # Relay is a service boundary: never allow the Hub/runit caller to
-        # fall into CLI configuration prompts. The Termux launcher also
-        # preserves the Python runtime preload required by Yasin-AI.
         start_command=".venv/bin/yasinrelay-termux run --schedule --non-interactive",
-        # YasinRelay is a worker, not an HTTP server: portless by contract.
         host=None,
         port=None,
         health_endpoint=None,
@@ -89,9 +75,9 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasin-agent",
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-agent"),
-        process_pattern="agent_platform.server",
-        description="Yasin-Agent HTTP runtime (production: supervised by runit/termux-services)",
-        start_command=".venv/bin/python -m agent_platform.server",
+        process_pattern="agent_platform.server.app",
+        description="Yasin-Agent HTTP runtime",
+        start_command="python3 -m agent_platform.server.app",
         host=host_for("yasin-agent"),
         port=port_for("yasin-agent"),
         health_endpoint=health_endpoint_for("yasin-agent"),
@@ -99,13 +85,13 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasin-ai",
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-AI"),
-        # Yasin-AI's production supervisor loop is the long-running `serve` command.
         process_pattern="yasinai.cli.main serve",
-        description="موتور اصلی هوش مصنوعی یاسین",
+        description="موتور اصلی هوش مصنوعی یاسین (worker/supervisor)",
         start_command="yasin serve",
-        host=host_for("yasin-ai"),
-        port=port_for("yasin-ai"),
-        health_endpoint=health_endpoint_for("yasin-ai"),
+        # No verified HTTP listener in the actual runtime inventory yet.
+        host=None,
+        port=None,
+        health_endpoint=None,
     ),
     ProjectEntry(
         name="yasin-coder",
@@ -113,19 +99,20 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         description="دستیار کدنویسی یاسین",
         start_command="python3 -m yasin_coder.cli",
         enabled=False,
-        host=host_for("yasin-coder"),
-        port=port_for("yasin-coder"),
-        health_endpoint=health_endpoint_for("yasin-coder"),
+        host=None,
+        port=None,
+        health_endpoint=None,
     ),
     ProjectEntry(
         name="yasinpress",
         path=str(YASIN_ECOSYSTEM_ROOT / "YasinPress-Rewrite-"),
         process_pattern="yasinpress.cli",
-        description="سیستم مدیریت و انتشار محتوای یاسین",
+        description="سیستم مدیریت و انتشار محتوای یاسین (worker)",
         start_command="python3 -m yasinpress.cli.main run",
-        host=host_for("yasinpress"),
-        port=port_for("yasinpress"),
-        health_endpoint=health_endpoint_for("yasinpress"),
+        # YasinPress CLI runs the publishing worker; no verified HTTP listener.
+        host=None,
+        port=None,
+        health_endpoint=None,
     ),
     ProjectEntry(
         name="backup_manager",
@@ -138,23 +125,14 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
 
 
 def default_registry() -> List[ProjectEntry]:
-    """
-    لود کردن فهرست پروژه‌ها از فایل پیکربندی YAML مرکزی از طریق لایه مدیریت پیکربندی.
-    """
     from .config_manager import get_projects
     return get_projects()
 
 
 def load_config(config_path: Optional[Path] = None) -> List[ProjectEntry]:
-    """
-    سازگاری با نسخه‌های قبلی: لود کردن پروژه‌ها از مسیر داده شده.
-    در صورت عدم وجود فایل پیکربندی پیش‌فرض را ایجاد می‌کند.
-    """
     path = config_path or DEFAULT_CONFIG_PATH
-
     if yaml is None:
         return list(DEFAULT_PROJECTS)
-
     if not path.exists():
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -177,11 +155,9 @@ def load_config(config_path: Optional[Path] = None) -> List[ProjectEntry]:
             }
             path.write_text(
                 yaml.dump(default_yaml_content, allow_unicode=True, sort_keys=False),
-                encoding="utf-8"
+                encoding="utf-8",
             )
         except Exception:
             return list(DEFAULT_PROJECTS)
-
     from .config_manager import ConfigManager
-    manager = ConfigManager(config_path=path)
-    return manager.get_projects()
+    return ConfigManager(config_path=path).get_projects()
