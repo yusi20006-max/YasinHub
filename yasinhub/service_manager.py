@@ -89,11 +89,13 @@ def verify_process_identity(pid: int, process_pattern: Optional[str],
         except ValueError:
             argv0 = ""
         if argv0:
-            first = cmdline.split(" ")[0] if cmdline else ""
-            if first == argv0 or first.endswith("/" + argv0) or argv0.endswith("/" + first):
-                return True
-            # argv[0] basename comparison (relative launcher vs resolved path).
-            if posixpath.basename(first) == posixpath.basename(argv0):
+            parts = cmdline.split(" ")
+            if any(
+                p == argv0
+                or p.endswith("/" + argv0)
+                or posixpath.basename(p) == posixpath.basename(argv0)
+                for p in parts
+            ):
                 return True
     return False
 
@@ -324,16 +326,17 @@ def _yasin_agent_token() -> str:
 
 
 def _service_env(project: ProjectEntry) -> dict[str, str]:
-    """Build the child environment, including Yasin-Agent's local auth contract."""
-    from .ports import port_for
-
+    """Build the child environment, including Yasin-Agent's local auth contract and port injection."""
     env = os.environ.copy()
     if project.path:
         env["PYTHONPATH"] = str(project.path) + ":" + env.get("PYTHONPATH", "")
-    if project.name == "yasin-agent":
-        env.setdefault("YASIN_AGENT_HOST", "127.0.0.1")
-        env.setdefault("YASIN_AGENT_PORT", str(port_for("yasin-agent") or 7002))
-        env["YASIN_AGENT_SERVICE_TOKEN"] = _yasin_agent_token()
+    if project.port is not None:
+        if project.name == "yasin-agent":
+            env["YASIN_AGENT_HOST"] = project.host or "127.0.0.1"
+            env["YASIN_AGENT_PORT"] = str(project.port)
+            env["YASIN_AGENT_SERVICE_TOKEN"] = _yasin_agent_token()
+        elif project.name == "yasinfeed":
+            env["YASINFEED_PORT"] = str(project.port)
     return env
 
 

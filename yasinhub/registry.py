@@ -75,9 +75,9 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasin-agent",
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-agent"),
-        process_pattern="agent_platform.server.app",
-        description="Yasin-Agent HTTP runtime",
-        start_command="python3 -m agent_platform.server.app",
+        process_pattern="agent_platform.server",
+        description="Yasin-Agent HTTP runtime (production: supervised by runit/termux-services)",
+        start_command=str(Path.home() / "yasineco" / "Yasin-agent/.venv/bin/python") + " -m agent_platform.server",
         host=host_for("yasin-agent"),
         port=port_for("yasin-agent"),
         health_endpoint=health_endpoint_for("yasin-agent"),
@@ -85,10 +85,10 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
     ProjectEntry(
         name="yasin-ai",
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-AI"),
-        process_pattern="yasinai.cli.main serve",
+        # Yasin-AI's production supervisor loop is the long-running `serve` command.
+        process_pattern="yasin serve",
         description="موتور اصلی هوش مصنوعی یاسین (worker/supervisor)",
         start_command="yasin serve",
-        # No verified HTTP listener in the actual runtime inventory yet.
         host=None,
         port=None,
         health_endpoint=None,

@@ -67,23 +67,22 @@ class ConfigManager:
                 for p in DEFAULT_PROJECTS
             ]
         else:
-            # Canonical port metadata is authoritative. A stale local config
-            # must not resurrect a retired/synthetic HTTP port assignment.
-            from .ports import health_endpoint_for, host_for, port_for
+            # Canonical registry metadata is authoritative. Stale local config
+            # entries must not override canonical start commands, process patterns,
+            # ports, hosts, or health endpoints.
+            from .registry import DEFAULT_PROJECTS
+            default_map = {p.name: p for p in DEFAULT_PROJECTS}
             for proj in config_data["projects"]:
                 if not isinstance(proj, dict) or not proj.get("name"):
                     continue
                 name = proj["name"]
-                canonical_port = port_for(name)
-                canonical_host = host_for(name)
-                canonical_endpoint = health_endpoint_for(name)
-                proj["port"] = canonical_port
-                proj["host"] = canonical_host
-                proj["health_endpoint"] = canonical_endpoint
-                # Migrate the known broken Agent command from Issue #179's
-                # first registry revision. Do not manufacture a virtualenv.
-                if name == "yasin-agent" and proj.get("start_command") == ".venv/bin/python -m agent_platform.server":
-                    proj["start_command"] = "python3 -m agent_platform.server.app"
+                if name in default_map:
+                    def_p = default_map[name]
+                    proj["port"] = def_p.port
+                    proj["host"] = def_p.host
+                    proj["health_endpoint"] = def_p.health_endpoint
+                    proj["start_command"] = def_p.start_command
+                    proj["process_pattern"] = def_p.process_pattern
                 if name == "yasinfeed":
                     stored = proj.get("path")
                     if stored and str(stored).endswith("/Yasinfeed-main"):
