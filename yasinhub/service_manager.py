@@ -30,6 +30,14 @@ DEFAULT_LOGS_DIR = Path(os.environ.get("YASINHUB_LOGS_DIR", str(Path.home() / ".
 STARTUP_GRACE_SECONDS = 2.0
 STARTUP_POLL_INTERVAL = 0.2
 
+# پنجره‌ی settle برای HTTP-contract: بایند پورت و readiness ممکن است چند
+# ثانیه پس از spawn طول بکشد (uvicorn/fastapi import). تا سقف این پنجره،
+# identity + ownership + health polling می‌شود؛ سپس fail closed. این انتظار
+# محدود، راستی‌آزمایی را تضعیف نمی‌کند: هرگز RUNNING گزارش نمی‌شود مگر با
+# هر سه شرط، و مرگ فرزند یا identity قطعی‌foreign بلافاصله fail می‌دهد.
+VERIFY_GRACE_SECONDS = 10.0
+VERIFY_POLL_INTERVAL = 0.5
+
 
 def _command_argv(command: str) -> list[str]:
     """Parse a configured command once at the trust boundary, without shell evaluation."""
@@ -301,6 +309,33 @@ def _fail_start(
         pass
 
 
+def _await_http_verified(project: ProjectEntry, proc: subprocess.Popen) -> RuntimeVerdict:
+    """Poll verify_runtime_running until pass, deadline, or child death.
+
+    Bounded settle for slow binders (uvicorn import can take seconds on
+    loaded devices). Fail-fast when the child dies or when identity is
+    definitively foreign (our own child must match; waiting cannot fix it).
+    Never reports RUNNING without identity + ownership + health.
+    """
+    attempts = max(1, int(VERIFY_GRACE_SECONDS / VERIFY_POLL_INTERVAL))
+    verdict: Optional[RuntimeVerdict] = None
+    for _ in range(attempts):
+        try:
+            if proc.poll() is not None:
+                break
+        except Exception:
+            break
+        verdict = verify_runtime_running(project, proc.pid)
+        if verdict.running:
+            return verdict
+        if verdict.identity is False:
+            break
+        time.sleep(VERIFY_POLL_INTERVAL)
+    if verdict is None:
+        verdict = verify_runtime_running(project, proc.pid)
+    return verdict
+
+
 def _wait_for_stable_start(proc: subprocess.Popen, grace: float = STARTUP_GRACE_SECONDS,
                             interval: float = STARTUP_POLL_INTERVAL) -> Optional[int]:
     """Bounded startup verification for a freshly spawned child.
@@ -530,10 +565,11 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
 
         # Issue #179 start contract: a fresh spawn of an HTTP-contract
         # service is RUNNING only with identity + port ownership + health.
-        # PID existence alone is insufficient. On failure only our own
-        # freshly spawned child is stopped; unknown PIDs are never touched.
+        # PID existence alone is insufficient. Slow binders get a bounded
+        # settle window; on failure only our own freshly spawned child is
+        # stopped; unknown PIDs are never touched.
         if _http_contract(project) is not None:
-            verdict = verify_runtime_running(project, proc.pid)
+            verdict = _await_http_verified(project, proc)
             if not verdict.running:
                 detail = "; ".join(verdict.reasons) or "lifecycle verification failed"
                 print(f"خطا: سرویس {project.name} راستی‌آزمایی راه‌اندازی را پاس نکرد: {detail}")

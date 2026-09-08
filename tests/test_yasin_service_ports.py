@@ -110,6 +110,18 @@ class _FakeProc:
         return False
 
 
+def _await_verdict_running(project, pid, timeout=10.0):
+    """Poll the verdict briefly; absorbs device-load transients in live tests."""
+    deadline_attempts = max(1, int(timeout / 0.5))
+    verdict = None
+    for _ in range(deadline_attempts):
+        verdict = sm.verify_runtime_running(project, pid)
+        if verdict.running:
+            return verdict
+        time.sleep(0.5)
+    return verdict
+
+
 def _spawn_fake(monkeypatch, pid=424242):
     """Replace Popen with an instantly-stable fake child."""
     created = {}
@@ -121,6 +133,8 @@ def _spawn_fake(monkeypatch, pid=424242):
 
     monkeypatch.setattr(sm.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(sm, "_wait_for_stable_start", lambda proc: None)
+    # Single verification attempt for fake spawns (no settle wait).
+    monkeypatch.setattr(sm, "VERIFY_GRACE_SECONDS", 0)
     # Fake children have no real OS PID; treat them as alive so each test
     # exercises its own gate (identity / ownership / health) deterministically.
     monkeypatch.setattr(sm, "_is_pid_alive", lambda pid: True)
@@ -316,6 +330,38 @@ def test_start_requires_health(isolated_runtime, monkeypatch):
     assert read_pid(project.name) is None
 
 
+def test_slow_binder_succeeds_within_settle_window(isolated_runtime, monkeypatch):
+    """A binder that becomes ready after a few polls still passes (no flake)."""
+    port = _free_test_port()
+    project = _http_entry("slow-bind-svc", isolated_runtime, port)
+    _spawn_fake(monkeypatch, pid=424246)
+    # Settle window of 3 instant attempts (sleep is stubbed below).
+    monkeypatch.setattr(sm, "VERIFY_GRACE_SECONDS", 3)
+    monkeypatch.setattr(sm, "VERIFY_POLL_INTERVAL", 1)
+    monkeypatch.setattr(sm.time, "sleep", lambda s: None)
+
+    monkeypatch.setattr(sm, "verify_process_identity", lambda pid, pat, cmd: True)
+    calls = {"n": 0}
+
+    def flapping_ownership(host, p, pid):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return ports.PortOwnership(
+                port=p, occupied=False, owner_pids=[],
+                owned_by_pid=None, detail="not bound yet",
+            )
+        return ports.PortOwnership(
+            port=p, occupied=True, owner_pids=[pid],
+            owned_by_pid=True, detail="owned",
+        )
+
+    monkeypatch.setattr(sm, "verify_port_ownership", flapping_ownership)
+    monkeypatch.setattr(sm, "check_http_health", lambda *a, **k: True)
+    assert sm.start_service(project, logs_dir=isolated_runtime / "logs") is True
+    assert read_pid(project.name) == 424246
+    assert calls["n"] >= 3
+
+
 def test_live_start_stop_cycle_verifies_all_three(isolated_runtime):
     """Real loopback HTTP service: full start -> verify -> stop lifecycle."""
     port = _free_test_port()
@@ -325,7 +371,7 @@ def test_live_start_stop_cycle_verifies_all_three(isolated_runtime):
     pid = read_pid(project.name)
     assert pid is not None and is_pid_alive(pid)
 
-    verdict = sm.verify_runtime_running(project, pid)
+    verdict = _await_verdict_running(project, pid)
     assert verdict.running is True
     assert verdict.identity is True
     assert verdict.health_ok is True
@@ -384,7 +430,7 @@ def test_restart_verifies_new_port_owner(isolated_runtime):
     try:
         assert sm.restart_service(project, logs_dir=isolated_runtime / "logs") is True
         new_pid = read_pid(project.name)
-        verdict = sm.verify_runtime_running(project, new_pid)
+        verdict = _await_verdict_running(project, new_pid)
         assert verdict.running is True, verdict.reasons
         assert verdict.health_ok is True
     finally:
