@@ -289,16 +289,18 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         if clean_path == "/api/services":
             services = []
             for p in default_registry():
+                if not getattr(p, "enabled", True):
+                    continue
                 services.append({
                     "name": p.name,
                     "description": p.description,
                     "path": p.path,
-                    "enabled": getattr(p, "enabled", True),
+                    "enabled": True,
                     "controls": [
                         "start",
                         "stop",
                         "restart"
-                    ] if getattr(p, "enabled", True) else []
+                    ]
                 })
 
             self.send_json({
