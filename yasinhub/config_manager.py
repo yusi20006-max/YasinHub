@@ -68,8 +68,9 @@ class ConfigManager:
             ]
         else:
             # Canonical registry metadata is authoritative. Stale local config
-            # entries must not override canonical start commands, process patterns,
-            # ports, hosts, or health endpoints.
+            # entries must not override lifecycle metadata, including whether a
+            # service is enabled. Retired services therefore remain disabled
+            # even when an older ~/.yasinhub/config.yaml says otherwise.
             from .registry import DEFAULT_PROJECTS
             default_map = {p.name: p for p in DEFAULT_PROJECTS}
             for proj in config_data["projects"]:
@@ -83,6 +84,7 @@ class ConfigManager:
                     proj["health_endpoint"] = def_p.health_endpoint
                     proj["start_command"] = def_p.start_command
                     proj["process_pattern"] = def_p.process_pattern
+                    proj["enabled"] = def_p.enabled
                 if name == "yasinfeed":
                     stored = proj.get("path")
                     if stored and str(stored).endswith("/Yasinfeed-main"):
