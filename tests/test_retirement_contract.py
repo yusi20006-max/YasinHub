@@ -72,14 +72,12 @@ def test_disabled_start_never_spawns(tmp_path):
 
 
 def test_disabled_status_without_crash(tmp_path):
-    """4. Disabled entry reports status deterministically without crashing."""
+    """4. Disabled entry is excluded from runtime reports without crashing."""
     reports = build_report(
         projects=[_disabled_entry()],
         status_dir=tmp_path / "status",
     )
-    assert len(reports) == 1
-    assert reports[0].name == "retired_svc"
-    assert reports[0].health_state in ("IDLE", "FAILED", "UNKNOWN")
+    assert reports == []
 
 
 def test_disabled_stop_restart_never_spawn(tmp_path):
