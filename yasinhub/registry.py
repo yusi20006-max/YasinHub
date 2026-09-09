@@ -77,7 +77,9 @@ DEFAULT_PROJECTS: List[ProjectEntry] = [
         path=str(YASIN_ECOSYSTEM_ROOT / "Yasin-agent"),
         process_pattern="agent_platform.server",
         description="Yasin-Agent HTTP runtime (production: supervised by runit/termux-services)",
-        start_command=str(Path.home() / "yasineco" / "Yasin-agent/.venv/bin/python") + " -m agent_platform.server",
+        # Canonical interpreter: derived from YASIN_ECOSYSTEM_ROOT. Never
+        # hard-code a legacy ecosystem tree path here.
+        start_command=str(YASIN_ECOSYSTEM_ROOT / "Yasin-agent" / ".venv" / "bin" / "python") + " -m agent_platform.server",
         host=host_for("yasin-agent"),
         port=port_for("yasin-agent"),
         health_endpoint=health_endpoint_for("yasin-agent"),
