@@ -84,6 +84,11 @@ def build_report(
 ) -> List[ProjectReport]:
     """Build service reports using the current configured status directory.
 
+    Disabled registry entries are retired services and are excluded from
+    runtime reports. This keeps the Observer/API/PWA operational view aligned
+    with the registry lifecycle contract: disabled services must not be
+    counted as projects or surfaced as FAILED/UNKNOWN entries.
+
     A live process is authoritative over stale persisted failure state. This is
     important for long-running services such as Yasin-AI, which can be started
     successfully while an older failed status record is still present.
@@ -93,6 +98,7 @@ def build_report(
         status_dir = get_status_dir()
 
     projects = projects if projects is not None else default_registry()
+    projects = [project for project in projects if getattr(project, "enabled", True)]
     reports: List[ProjectReport] = []
 
     for project in projects:
