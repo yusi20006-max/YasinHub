@@ -1,3 +1,4 @@
+from yasinhub.config_manager import ConfigManager
 from yasinhub.report import build_report
 from yasinhub.registry import ProjectEntry
 
@@ -19,3 +20,27 @@ def test_disabled_services_are_excluded_from_runtime_reports(monkeypatch, tmp_pa
     reports = build_report(projects=projects, status_dir=tmp_path)
 
     assert [report.name for report in reports] == ["active-service"]
+
+
+def test_canonical_registry_state_overrides_stale_enabled_flag(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """projects:\n"
+        "  - name: yasin-coder\n"
+        "    enabled: true\n"
+        "  - name: eitaa_news_v2\n"
+        "    enabled: true\n"
+        "  - name: backup_manager\n"
+        "    enabled: true\n"
+        "  - name: yasin-ai\n"
+        "    enabled: true\n",
+        encoding="utf-8",
+    )
+
+    manager = ConfigManager(config_path=config_path)
+    projects = {project.name: project for project in manager.get_projects()}
+
+    assert projects["yasin-coder"].enabled is False
+    assert projects["eitaa_news_v2"].enabled is False
+    assert projects["backup_manager"].enabled is False
+    assert projects["yasin-ai"].enabled is True
