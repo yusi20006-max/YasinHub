@@ -68,14 +68,36 @@ export YASIN_AGENT_SERVICE_TOKEN='YOUR_TOKEN'
 
 اگر Hub قبلاً توکن را ساخته/ذخیره کرده است، از همان منبع استفاده کنید و توکن جدید نسازید مگر اینکه عمداً rotation انجام می‌دهید.
 
-## 6. اجرای YasinHub API
+## 6. اجرای YasinHub API — مسیر رسمی تک‌دستوری (Issue #180)
+
+مسیر رسمی و خودترمیم (self-healing) اجرای YasinHub، لانچر زیر است.
+این لانچر به‌صورت خودکار و غیرتعاملی این زنجیره را اجرا می‌کند:
+
+```text
+preflight → identify → safely restart if YasinHub → start → verify
+```
 
 از داخل مخزن:
 
 ```bash
 cd ~/YasinEco/YasinHub
-python -m yasinhub.api.server
+python -m yasinhub.startup
 ```
+
+رفتار لانچر روی پورت اختصاصی `7000`:
+
+- پورت آزاد باشد: Hub به‌صورت عادی استارت می‌شود.
+- پورت در مالکیت YasinHub تأییدشده باشد (بر اساس هویت واقعی پروسس، نه صرف
+  اشغال پورت): Hub قبلی با `SIGTERM` به‌آرامی متوقف، مرگ واقعی پروسس و آزادی
+  پورت راستی‌آزمایی، سپس Hub جدید استارت و PID/هویت/listening/health جدید
+  verify می‌شود. مسیر عادی هرگز `kill -9` کور انجام نمی‌دهد.
+- مالک، پروسس دیگر/ناشناخته باشد یا مالکیت قابل اثبات نباشد: FAIL CLOSED —
+  هیچ پروسسی kill نمی‌شود و لانچر با exit غیرصفر برمی‌گردد.
+
+پس از استارت موفق، لانچر فقط وقتی success گزارش می‌دهد که PID واقعی، هویت
+پروسس `yasinhub.api.server`، listening بودن پورت `7000` و پاسخ health تأیید
+شده باشند. اجرای دستی `python -m yasinhub.api.server` فقط برای عیب‌یابی
+نگه داشته شده و workflow اصلی نیست.
 
 سرور باید روی این آدرس در دسترس باشد:
 
@@ -210,7 +232,7 @@ python -m yasinhub.cli stop yasin-agent
 [ ] pip install -e . در صورت نیاز
 [ ] pytest سبز
 [ ] ~/.yasinhub/yasin-agent.token موجود است
-[ ] python -m yasinhub.api.server
+[ ] python -m yasinhub.startup
 [ ] GET /api/health = 200
 [ ] GET /api/services = 200
 [ ] start yasin-agent
