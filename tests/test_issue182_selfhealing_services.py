@@ -244,7 +244,10 @@ def test_182_foreign_owner_refused_and_survives(isolated_runtime):
         orig_kill = os.kill
 
         def guard_kill(pid, sig):
-            killed.append((pid, sig))
+            # Signal 0 is a read-only liveness probe (is_pid_alive), not a
+            # signal delivery; only real deliveries count as "signaled".
+            if sig != 0:
+                killed.append((pid, sig))
             return orig_kill(pid, sig)
 
         import yasinhub.service_lifecycle as lc
