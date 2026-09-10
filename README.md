@@ -1,75 +1,133 @@
 # YasinHub
 
-یک CLI ساده‌ی وضعیت برای اکوسیستم Yasin — نه یک داشبورد سنگین، فقط
-پاسخ سریع به «چی الان روشنه، آخرین اجرا کِی و چطور بوده».
+یک Control Plane سبک برای اکوسیستم Yasin؛ مرجع کنترل lifecycle، وضعیت واقعی سرویس‌ها و PWA عملیاتی.
 
 ## نصب
 
 ```bash
-pip install -r requirements.txt  # (فعلاً فقط pytest برای تست لازم است)
+pip install -r requirements.txt
 ```
 
-## استفاده
-
-هر پروژه (بات ایتا، YasinRelay و ...) در انتهای اجرای خودش این را
-صدا می‌زند تا وضعیتش ثبت شود:
-
-```python
-from yasinhub.status_store import write_status
-
-write_status("yasinrelay", success=True, message="۱۲ پست منتشر شد")
-```
-
-و برای دیدن وضعیت کلی:
+## اجرای وضعیت
 
 ```bash
 python3 -m yasinhub.cli status
 ```
 
-خروجی نمونه:
-```
-eitaa_news_v2  پروسس: در حال اجرا   آخرین اجرا: 2026-07-26T09:00:00+00:00 (موفق)
-yasinrelay     پروسس: متوقف        آخرین اجرا: 2026-07-26T08:00:00+00:00 (موفق)
-               پیام: ۱۲ پست منتشر شد
-yasin-agent    پروسس: —            آخرین اجرا: بدون گزارش
+## اجرای canonical روی Termux / Android ARM64
+
+YasinHub از **پورت اختصاصی 7000** استفاده می‌کند و `yasinhub.startup` لانچر رسمی و non-interactive برای شروع آن است.
+
+### Sync + Start
+
+```bash
+cd ~/YasinEco/YasinHub
+
+git fetch origin
+git checkout main
+git reset --hard origin/main
+git clean -fd
+
+export YASIN_ECOSYSTEM_ROOT="$HOME/YasinEco"
+export PYTHONPATH=.
+
+.venv/bin/python -m yasinhub.startup
 ```
 
-## اجرای تست‌ها
+لانچر startup قبل از شروع، پورت `7000` را بررسی می‌کند:
+
+- اگر پورت آزاد باشد، YasinHub را start می‌کند.
+- اگر یک YasinHub قبلی پورت را گرفته باشد، آن را به‌صورت graceful متوقف می‌کند، آزادشدن پورت را تأیید می‌کند و نمونه جدید را start می‌کند.
+- اگر مالک پورت YasinHub نباشد یا هویت مالک قابل تأیید نباشد، **FAIL CLOSED** انجام می‌شود و هیچ process نامرتبطی kill نمی‌شود.
+- پس از start، PID، هویت process، listening port و health باید قابل تأیید باشند.
+- مسیر عادی از `SIGTERM` استفاده می‌کند و blind `kill -9` انجام نمی‌دهد.
+- این startup کاملاً non-interactive است و برای Termux/Android ARM64 طراحی شده است.
+
+**نکته:** پیام `YasinHub startup ok: action=started pid=<PID> port=7000` فقط پیام موفقیت launcher است. Launcher می‌تواند پس از start شدن Hub از ترمینال خارج شود؛ معیار زنده‌بودن Hub، پاسخ health روی پورت `7000` است.
+
+### بررسی سریع پس از Start
+
+```bash
+curl -sS http://127.0.0.1:7000/api/health
+```
+
+پاسخ مورد انتظار:
+
+```json
+{
+  "service": "YasinHub",
+  "status": "ok"
+}
+```
+
+PWA:
+
+```text
+http://127.0.0.1:7000/dashboard/
+```
+
+Version/build:
+
+```bash
+curl -sS http://127.0.0.1:7000/api/version
+```
+
+## Lifecycle authority
+
+YasinHub تنها Control Plane و مرجع lifecycle/PID اکوسیستم است. PWA نباید مستقیماً processها را کنترل کند و سرویس‌ها نباید یک Control Plane دوم ایجاد کنند.
+
+برای lifecycle سرویس‌ها از Hub استفاده کنید:
+
+```bash
+cd ~/YasinEco/YasinHub
+export YASIN_ECOSYSTEM_ROOT="$HOME/YasinEco"
+export PYTHONPATH=.
+
+python -m yasinhub.cli status
+python -m yasinhub.cli start yasinrelay
+python -m yasinhub.cli status
+```
+
+## Port assignments
+
+| Service | Port |
+|---|---:|
+| YasinHub | 7000 |
+| Yasin-Agent | 7002 |
+| YasinFeed | 7004 |
+| YasinRelay | portless unless a proven HTTP runtime exists |
+| Yasin-AI | portless unless a proven HTTP runtime exists |
+| YasinPress | portless unless a proven HTTP runtime exists |
+| Yasin-Coder | portless unless a proven HTTP runtime exists |
+
+## Termux compatibility
+
+Termux روی Android ARM64 هدف first-class است. Runtime، process identity، lifecycle و health باید با evidence واقعی روی Termux تأیید شوند.
+
+## Tests
 
 ```bash
 python3 -m pytest tests/ -v
 ```
 
-## سازگاری با Termux / Android ARM64
+## ساختار اصلی
 
-Termux روی Android ARM64 (Android 11+ / API 30+ / Python 3.9–3.14.x) به عنوان هدف اصلی (First-class Target) پشتیبانی می‌شود.
-برای جزئیات بیشتر به [مستند سازگاری Termux](docs/TERMUX_COMPATIBILITY.md) مراجعه کنید.
-
-## ساختار
-
-```
+```text
 yasinhub/
-├── yasinhub/
-│   ├── __init__.py
-│   ├── status_store.py     # خواندن/نوشتن فایل‌های وضعیت JSON
-│   ├── process_checker.py   # چک زنده‌بودن پروسس با pgrep -f
-│   ├── registry.py          # فهرست پروژه‌های تحت نظارت
-│   ├── report.py            # ترکیب فایل وضعیت + چک پروسس
-│   └── cli.py                # python -m yasinhub.cli status
-├── tests/
-│   └── test_yasinhub.py
-├── conftest.py
-└── README.md
+├── api/
+├── startup.py          # canonical self-healing startup launcher
+├── cli.py
+├── registry.py
+├── report.py
+├── process_checker.py
+└── status_store.py
 ```
 
-## اضافه کردن پروژه‌ی جدید
+## Security
 
-در `yasinhub/registry.py`، به `DEFAULT_PROJECTS` یک `ProjectEntry`
-اضافه کن:
-
-```python
-ProjectEntry(name="new_project", process_pattern="new_project.py", description="توضیح کوتاه")
-```
-
-اگر پروژه پروسس دائمی ندارد (مثل yasin-agent که فقط on-demand اجرا
-می‌شود)، `process_pattern=None` بگذار.
+- `shell=False` برای lifecycle commands.
+- عدم چاپ یا commit کردن secrets.
+- `.env` محلی و ترجیحاً با permission `0600`.
+- هویت process قبل از اعلام موفقیت بررسی می‌شود.
+- مالک ناشناس پورت هرگز kill نمی‌شود.
+- YasinHub تنها lifecycle/PID authority است.
