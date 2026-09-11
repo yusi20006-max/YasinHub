@@ -107,8 +107,31 @@ http://127.0.0.1:7000
 
 این ترمینال را باز نگه دارید.
 
-## 7. Health check
+## 6b. قرارداد self-healing سراسری همه سرویس‌ها (Issue #182)
 
+قرارداد Issue #180 فقط برای خود YasinHub بود؛ Issue #182 همان قرارداد را
+به همه سرویس‌های مدیریت‌شده توسط YasinHub تعمیم می‌دهد. معماری نهایی:
+
+```text
+PWA → YasinHub → Runit → Service
+```
+
+- پورت آزاد: استارت عادی از مسیر Runit (`sv up` برای سرویس Runit-managed)
+  و verify کامل PID/هویت/listening/health.
+- پورت در مالکیت همان سرویس (هویت واقعی پروسس، نه شماره پورت): توقف
+  graceful از مسیر Runit/service lifecycle (اول `sv down` تا سوپروایزر
+  پروسس را زنده نکند، بعد SIGTERM؛ هرگز `kill -9` کور در مسیر عادی)، انتظار
+  مرگ واقعی و آزادی پورت، استارت، و verify PID/هویت/پورت جدید.
+- مالک دیگر/ناشناخته یا مالکیت غیرقابل اثبات (PID کهنه/مرده/ناقص):
+  FAIL CLOSED — هیچ پروسسی kill نمی‌شود و علت (سرویس، پورت، PID، هویت،
+  دسته‌بندی مالکیت) در status/report ثبت می‌شود تا PWA خطای واقعی را نشان دهد.
+
+پیاده‌سازی: `yasinhub/service_lifecycle.py` (قرارداد generic)،
+`yasinhub/runit.py` (آداپتور `sv`)، و اتصال آن در
+`yasinhub/service_manager.py`. تست متمرکز:
+`tests/test_issue182_selfhealing_services.py`.
+
+## 7. Health check
 در ترمینال دوم:
 
 ```bash

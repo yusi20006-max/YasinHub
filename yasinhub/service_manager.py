@@ -465,7 +465,14 @@ def stop_pid_safely(pid: int, timeout: float = 3.0) -> bool:
 
 
 def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
-    """شروع اجرای یک سرویس در پس‌زمینه."""
+    """شروع اجرای یک سرویس در پس‌زمینه.
+
+    Issue #182: HTTP-contract services go through the generic self-healing
+    startup/ownership contract (YasinHub -> Runit -> service): free port ->
+    start -> verify; same-service occupant -> graceful stop -> wait -> start
+    -> verify; foreign/unknown/stale occupant -> FAIL CLOSED with a PWA-
+    visible report. Portless services keep the legacy PID+identity lifecycle.
+    """
     if not getattr(project, "enabled", True):
         print(f"سرویس {project.name} غیرفعال (retired) است؛ به‌عنوان دیمون اجرا نمی‌شود.")
         return False
@@ -473,6 +480,9 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
     if not project.start_command:
         print(f"خطا: دستور شروع برای سرویس {project.name} تعریف نشده است.")
         return False
+
+    if _http_contract(project) is not None:
+        return _start_http_service(project, logs_dir)
 
     saved_pid = read_pid(project.name)
     if saved_pid:
@@ -486,13 +496,10 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
     if project.process_pattern:
         status = check_process(project.process_pattern)
         if status.running:
-            if project.name == "yasin-agent":
-                print(
-                    f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}). "
-                    "Ownership با runit/termux-services است؛ از spawn مجدد خودداری شد."
-                )
-            else:
-                print(f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}).")
+            print(
+                f"سرویس {project.name} از قبل در حال اجراست (PIDs: {status.pids}). "
+                "Ownership با supervisor است؛ از spawn مجدد خودداری شد."
+            )
             if status.pids:
                 try:
                     save_pid(project.name, int(status.pids[0]))
@@ -527,15 +534,398 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
         print(f"خطا در ایجاد فایل لاگ برای {project.name}: {e}")
         return False
 
-    # Issue #179 pre-flight: an expected Yasin port occupied by an unrelated
-    # process fails closed BEFORE spawning. Never kill the unknown owner.
-    if _http_contract(project) is not None:
-        pre_ok, pre_detail = preflight_port_check(project)
-        if not pre_ok:
-            print(f"خطا: شروع سرویس {project.name} ممکن نیست: {pre_detail}")
-            _fail_start(project.name, f"شروع ناموفق: {pre_detail}")
+    # Portless legacy path: HTTP-contract services are handled exclusively by
+    # _start_http_service (generic Issue #182 contract) and never reach here.
+    try:
+        env = _service_env(project)
+        proc = subprocess.Popen(
+            _command_argv(project.start_command),
+            shell=False,
+            cwd=project.path if project.path else None,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+        )
+
+        save_pid(project.name, proc.pid)
+        exit_code = _wait_for_stable_start(proc)
+        if exit_code is not None:
+            print(f"خطا: سرویس {project.name} در حین راستی‌آزمایی راه‌اندازی با کد خروج {exit_code} متوقف شد.")
+            remove_pid(project.name)
             log_file.close()
+            try:
+                from .status_store import write_status
+                write_status(project.name, success=False, message=f"خطا: پروسس در حین راه‌اندازی با کد خروج {exit_code} متوقف شد.")
+            except Exception:
+                pass
             return False
+
+        _mark_running(project.name)
+        print(f"سرویس {project.name} با موفقیت در پس‌زمینه استارت شد.")
+        log_file.close()
+        return True
+    except Exception as e:
+        print(f"خطا در اجرای دستور شروع سرویس {project.name}: {e}")
+        remove_pid(project.name)
+        log_file.close()
+        try:
+            from .status_store import write_status
+            write_status(project.name, success=False, message=f"خطا در راه‌اندازی: {str(e)}")
+        except Exception:
+            pass
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Issue #182: generic self-healing startup/ownership contract for every
+# HTTP-contract managed service. Derived from registry/config/ports/Runit;
+# no per-service hard-coding. Lifecycle path stays:
+#     PWA -> YasinHub -> Runit -> Service
+# ---------------------------------------------------------------------------
+
+def _is_runit_dir_managed(service_name: str) -> bool:
+    """True when a runit service directory owns this service (dir-based)."""
+    try:
+        from . import runit as _runit
+
+        return bool(_runit.is_runit_managed(service_name))
+    except Exception:
+        return False
+
+
+def _is_sv_usable() -> bool:
+    """True when the runit ``sv`` control tool is available."""
+    try:
+        from . import runit as _runit
+
+        return bool(_runit.is_sv_available())
+    except Exception:
+        return False
+
+
+def _start_http_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
+    """Generic Issue #182 start for one HTTP-contract managed service.
+
+    - Port free -> start through Runit (``sv up``) when Runit-managed,
+      else spawn -> verify new PID + identity + port.
+    - Port occupied by verified same-service PIDs -> graceful stop through
+      the Runit/service lifecycle (never blind kill -9), wait for death and
+      port release, then start + verify.
+    - Foreign / unknown / stale / incomplete ownership -> FAIL CLOSED with a
+      PWA-visible report; nothing is killed.
+    """
+    from . import service_lifecycle as lifecycle
+
+    contract = _http_contract(project)
+    assert contract is not None
+    host, port, _endpoint = contract
+
+    # Adapted probes honour module-level test doubles on service_manager
+    # (verify_port_ownership) while using the real /proc + socket primitives
+    # on device. Owner discovery that cannot prove holders stays None
+    # (indeterminable) so the lifecycle correlates via the health anchor
+    # instead of guessing from an empty owner set.
+    def _owner_fn(p: int):
+        try:
+            ownership = verify_port_ownership(host, int(p), None)
+            if not ownership.owner_pids and ownership.owned_by_pid is None:
+                return None
+            return set(ownership.owner_pids)
+        except Exception:
+            return None
+
+    def _occupied_fn(h: str, p: int) -> bool:
+        try:
+            return bool(verify_port_ownership(h, int(p), None).occupied)
+        except Exception:
+            return True
+
+    def _identity_fn(pid: int):
+        try:
+            return lifecycle.strict_service_identity(int(pid), project)
+        except Exception:
+            return None
+
+    pre = lifecycle.preflight_service(
+        project, owner_fn=_owner_fn, occupied_fn=_occupied_fn, identity_fn=_identity_fn
+    )
+
+    if pre.decision in ("foreign", "indeterminate"):
+        detail = lifecycle.report_startup_refusal(project, pre, pre.detail)
+        print(f"خطا: شروع سرویس {project.name} ممکن نیست: {detail}")
+        return False
+    if pre.decision not in ("free", "same"):
+        detail = lifecycle.report_startup_refusal(
+            project, pre, pre.detail or "preflight did not prove the port free; fail closed"
+        )
+        print(f"خطا: شروع سرویس {project.name} ممکن نیست: {detail}")
+        return False
+
+    if pre.decision == "same":
+        if not _heal_same_service_owner(project, pre, host, port):
+            return False
+        # Heal required death + port release; fall through to start below.
+
+    # Drop a dead saved PID file without killing anything (stale metadata is
+    # cleaned, never acted on).
+    try:
+        saved = read_pid(project.name)
+        if saved and not _is_pid_alive(saved):
+            remove_pid(project.name)
+    except Exception:
+        pass
+
+    if _is_runit_dir_managed(project.name):
+        # Runit owns supervision: never bypass it with an ad-hoc spawn.
+        return _start_via_runit(project, host, port)
+    return _spawn_service_process(project, logs_dir)
+
+
+def _heal_same_service_owner(project: ProjectEntry, pre, host: str, port: int) -> bool:
+    """Gracefully stop verified-same occupants; wait death + port release.
+
+    Runit-managed services are stopped via ``sv down`` first so the
+    supervisor does not resurrect the PID, then any still-live verified-same
+    PID receives graceful SIGTERM (never blind kill -9). Returns True only
+    when every old PID is dead AND the port is released. Failures are
+    reported through the status/report contract (PWA-visible).
+    """
+    from . import service_lifecycle as lifecycle
+
+    name = project.name
+    old_pids = [int(p) for p in (pre.same_pids or [])]
+    if not old_pids:
+        detail = lifecycle.report_startup_refusal(
+            project, pre, f"port {port} occupied but no verified same-service PID; fail closed"
+        )
+        print(f"خطا: شروع سرویس {name} ممکن نیست: {detail}")
+        return False
+
+    if _is_runit_dir_managed(name) and not _is_sv_usable():
+        detail = lifecycle.report_startup_refusal(
+            project, pre,
+            f"service {name} is Runit-managed but 'sv' is unavailable; "
+            "refusing ad-hoc stop/spawn so Runit stays the lifecycle mechanism",
+        )
+        print(f"خطا: شروع سرویس {name} ممکن نیست: {detail}")
+        return False
+
+    def _sv_down(name_: str) -> bool:
+        try:
+            from .runit import sv_down as _down
+
+            return bool(_down(name_).ok)
+        except Exception:
+            return False
+
+    def _signal_graceful(pid: int, timeout: float) -> bool:
+        try:
+            return bool(lifecycle.stop_owned_pid_gracefully(int(pid), timeout))
+        except Exception:
+            return False
+
+    try:
+        stopped = lifecycle.stop_service_gracefully(
+            project,
+            old_pids,
+            timeout=lifecycle.STOP_GRACE_SECONDS,
+            sv_down_fn=_sv_down,
+            signal_fn=_signal_graceful,
+        )
+    except Exception:
+        stopped = False
+    if not stopped:
+        detail = lifecycle.report_startup_refusal(
+            project, pre,
+            f"existing {name} pid(s)={old_pids} did not stop gracefully; "
+            "fail closed, nothing force-killed",
+        )
+        print(f"خطا: شروع سرویس {name} ممکن نیست: {detail}")
+        return False
+
+    for pid in old_pids:
+        try:
+            if _is_pid_alive(int(pid)):
+                detail = lifecycle.report_startup_refusal(
+                    project, pre,
+                    f"old PID {pid} of {name} still alive after graceful stop; fail closed",
+                )
+                print(f"خطا: شروع سرویس {name} ممکن نیست: {detail}")
+                return False
+        except Exception:
+            detail = lifecycle.report_startup_refusal(
+                project, pre, f"old PID {pid} of {name} unverifiable after stop; fail closed"
+            )
+            print(f"خطا: شروع سرویس {name} ممکن نیست: {detail}")
+            return False
+
+    def _wait_owner_fn(p: int):
+        try:
+            ownership = verify_port_ownership(host, int(p), None)
+            if not ownership.owner_pids and ownership.owned_by_pid is None:
+                return None
+            return set(ownership.owner_pids)
+        except Exception:
+            return None
+
+    def _wait_occupied_fn(h: str, p: int) -> bool:
+        try:
+            return bool(verify_port_ownership(h, int(p), None).occupied)
+        except Exception:
+            return True
+
+    try:
+        released = lifecycle.wait_port_free(
+            host, port, old_pids[0],
+            timeout=lifecycle.PORT_RELEASE_TIMEOUT,
+            owner_fn=_wait_owner_fn, occupied_fn=_wait_occupied_fn,
+        )
+    except Exception:
+        released = False
+    if not released:
+        detail = lifecycle.report_startup_refusal(
+            project, pre,
+            f"port {port} still occupied after stopping {name} pid(s)={old_pids}; "
+            "fail closed, no new instance started",
+        )
+        print(f"خطا: شروع سرویس {name} ممکن نیست: {detail}")
+        return False
+    # Purge the stale PID record so the fresh spawn cannot reuse it.
+    try:
+        for pid in old_pids:
+            try:
+                if not _is_pid_alive(int(pid)):
+                    remove_pid(name)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return True
+
+
+def _discover_service_pid(project: ProjectEntry, host: str, port: int) -> Optional[int]:
+    """Best live PID for a Runit-started service: port owners, then pattern."""
+    try:
+        ownership = verify_port_ownership(host, int(port), None)
+        for pid in sorted(set(ownership.owner_pids)):
+            try:
+                if _is_pid_alive(int(pid)) and verify_process_identity(
+                    int(pid), project.process_pattern, project.start_command
+                ) is True:
+                    return int(pid)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        if project.process_pattern:
+            status = check_process(project.process_pattern)
+            if status.running:
+                for pid_str in status.pids:
+                    try:
+                        pid = int(str(pid_str).strip())
+                    except ValueError:
+                        continue
+                    try:
+                        if _is_pid_alive(pid) and verify_process_identity(
+                            pid, project.process_pattern, project.start_command
+                        ) is True:
+                            return pid
+                    except Exception:
+                        continue
+    except Exception:
+        pass
+    try:
+        saved = read_pid(project.name)
+        if saved and _is_pid_alive(saved):
+            return int(saved)
+    except Exception:
+        pass
+    return None
+
+
+def _start_via_runit(project: ProjectEntry, host: str, port: int) -> bool:
+    """Start a Runit-managed service via ``sv up`` and verify the real PID."""
+    from . import service_lifecycle as lifecycle
+    from . import runit as _runit
+
+    name = project.name
+    try:
+        up = _runit.sv_up(name)
+    except Exception:
+        up = None
+    if up is None or not up.ok:
+        detail = lifecycle.report_startup_refusal(
+            project, None,
+            f"sv up {name} failed ({getattr(up, 'detail', 'no result')}); fail closed",
+        )
+        print(f"خطا: شروع سرویس {name} ممکن نیست: {detail}")
+        return False
+
+    # Bounded settle: discover the supervised PID, then require the full
+    # runtime verdict (identity + port + health). Never report RUNNING on a
+    # PID file alone.
+    attempts = max(1, int(VERIFY_GRACE_SECONDS / VERIFY_POLL_INTERVAL))
+    verdict = None
+    new_pid: Optional[int] = None
+    for _ in range(attempts):
+        try:
+            new_pid = _discover_service_pid(project, host, port)
+        except Exception:
+            new_pid = None
+        if new_pid is not None:
+            try:
+                verdict = verify_runtime_running(project, new_pid)
+            except Exception:
+                verdict = None
+            if verdict is not None and verdict.running:
+                break
+        time.sleep(VERIFY_POLL_INTERVAL)
+    if verdict is not None and verdict.running and new_pid is not None:
+        try:
+            save_pid(name, int(new_pid))
+        except Exception:
+            pass
+        _mark_running(name)
+        print(f"سرویس {name} از طریق Runit با موفقیت استارت شد (PID {new_pid}).")
+        return True
+    reasons = "; ".join((verdict.reasons if verdict is not None else []) or ["verification failed"])
+    detail = lifecycle.report_startup_refusal(
+        project, None, f"sv up {name} did not verify: {reasons}"
+    )
+    print(f"خطا: سرویس {name} راستی‌آزمایی راه‌اندازی را پاس نکرد: {detail}")
+    return False
+
+
+def _spawn_service_process(project: ProjectEntry, logs_dir: Optional[Path] = None) -> bool:
+    """Spawn a non-Runit HTTP-contract service and verify it (existing path)."""
+    if project.path:
+        p_path = Path(project.path)
+        if not p_path.exists():
+            print(f"خطا: مسیر تعریف شده برای سرویس {project.name} وجود ندارد: {project.path}")
+            try:
+                from .status_store import write_status
+                write_status(project.name, success=False, message=f"خطا: دایرکتوری سرویس یافت نشد: {project.path}")
+            except Exception:
+                pass
+            return False
+
+    if logs_dir is None:
+        from .config_manager import get_logs_dir
+        l_dir = get_logs_dir()
+    else:
+        l_dir = logs_dir
+
+    l_dir.mkdir(parents=True, exist_ok=True)
+    log_file_path = l_dir / f"{project.name}.log"
+
+    try:
+        log_file = open(log_file_path, "a", encoding="utf-8")
+    except Exception as e:
+        print(f"خطا در ایجاد فایل لاگ برای {project.name}: {e}")
+        return False
 
     try:
         env = _service_env(project)
@@ -563,24 +953,22 @@ def start_service(project: ProjectEntry, logs_dir: Optional[Path] = None) -> boo
                 pass
             return False
 
-        # Issue #179 start contract: a fresh spawn of an HTTP-contract
-        # service is RUNNING only with identity + port ownership + health.
-        # PID existence alone is insufficient. Slow binders get a bounded
+        # A fresh spawn of an HTTP-contract service is RUNNING only with
+        # identity + port ownership + health. Slow binders get a bounded
         # settle window; on failure only our own freshly spawned child is
         # stopped; unknown PIDs are never touched.
-        if _http_contract(project) is not None:
-            verdict = _await_http_verified(project, proc)
-            if not verdict.running:
-                detail = "; ".join(verdict.reasons) or "lifecycle verification failed"
-                print(f"خطا: سرویس {project.name} راستی‌آزمایی راه‌اندازی را پاس نکرد: {detail}")
-                try:
-                    stop_pid_safely(proc.pid)
-                except Exception:
-                    pass
-                remove_pid(project.name)
-                log_file.close()
-                _fail_start(project.name, f"شروع ناموفق: {detail}")
-                return False
+        verdict = _await_http_verified(project, proc)
+        if not verdict.running:
+            detail = "; ".join(verdict.reasons) or "lifecycle verification failed"
+            print(f"خطا: سرویس {project.name} راستی‌آزمایی راه‌اندازی را پاس نکرد: {detail}")
+            try:
+                stop_pid_safely(proc.pid)
+            except Exception:
+                pass
+            remove_pid(project.name)
+            log_file.close()
+            _fail_start(project.name, f"شروع ناموفق: {detail}")
+            return False
 
         _mark_running(project.name)
         print(f"سرویس {project.name} با موفقیت در پس‌زمینه استارت شد.")
@@ -607,7 +995,20 @@ def stop_service(project: ProjectEntry) -> bool:
     شدن خودِ پروسس Hub شود.
     قرارداد Issue #179: پس از توقف، مرگ PID و (برای HTTP-contract) آزادشدن
     پورت از مالکیت PID قدیمی verify می‌شود؛ در غیر این صورت False.
+    قرارداد Issue #182: سرویس‌های Runit-managed ابتدا از طریق ``sv down``
+    متوقف می‌شوند تا مسیر YasinHub -> Runit -> service حفظ شود؛ سپس PIDهای
+    باقی‌مانده با همان قرارداد مالکیت Hub خاتمه می‌یابند.
     """
+    # Issue #182: Runit-managed services stop through the supervisor first so
+    # it does not resurrect PIDs we terminate directly. Best-effort and
+    # non-interactive; the PID-level logic below still owns verification.
+    if _is_runit_dir_managed(project.name) and _is_sv_usable():
+        try:
+            from .runit import sv_down as _sv_down
+
+            _sv_down(project.name)
+        except Exception:
+            pass
     stopped = False
     stopped_pids: List[int] = []
     saved_pid = read_pid(project.name)
