@@ -510,7 +510,6 @@ def start_hub_process(
     """Spawn the Hub server (`python -m yasinhub.api.server`). Non-interactive."""
     check_port = int(port) if port is not None else resolve_hub_port()
     _ = host  # bind address is owned by yasinhub.api.server.run()
-    _ = check_port
     target_dir = logs_dir or _hub_logs_dir()
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -522,10 +521,13 @@ def start_hub_process(
     except OSError:
         log_file = open(os.devnull, "a", encoding="utf-8")
     argv = [sys.executable, "-m", "yasinhub.api.server"]
+    child_env = os.environ.copy()
+    child_env["YASINHUB_PORT"] = str(check_port)
     factory = popen_factory or subprocess.Popen
     proc = factory(
         argv,
         cwd=str(_hub_repo_root()),
+        env=child_env,
         stdin=subprocess.DEVNULL,
         stdout=log_file,
         stderr=subprocess.STDOUT,
