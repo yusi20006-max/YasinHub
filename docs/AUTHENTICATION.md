@@ -6,7 +6,7 @@ Authentication establishes **identity**. Authorization remains with **Policy**.
 
 | `YASIN_AUTH_MODE` | Behavior |
 |-------------------|----------|
-| `production` | Bearer token **required** on `/api/interface`, `/api/control`, direct service mutations under `/api/control/<service>/<action>`, and Observer mutations (`pause`, `resume`, `cancel`, fleet `cancel`). Soft `X-Actor` / body `actor` cannot authenticate. |
+| `production` | Bearer token **required** on `/api/interface`, `/api/control`, direct service mutations under `/api/control/<service>/<action>`, Observer mutations (`pause`, `resume`, `cancel`, fleet `cancel`), and the operational audit read surface `/api/audit`. Soft `X-Actor` / body `actor` cannot authenticate. |
 | `development` | Soft actor allowed (role VIEWER). Bearer token accepted when configured. |
 | `test` | Soft actor allowed (role OPERATOR for local control tests). |
 
@@ -45,7 +45,7 @@ and `YASIN_SLACK_IDENTITY_MAP`. HTTP token auth does not apply to Slack routes.
 - Tokens are never logged (only short SHA-256 fingerprints on failure).
 - Constant-time token compare.
 - Unauthenticated production requests cannot reach HTTP control mutations.
-- `VIEWER` is read-only for HTTP control; `OPERATOR`, `DEVELOPER`, and `ADMIN` may perform standard control mutations.
+- `VIEWER` is read-only for HTTP control and cannot query the operational audit surface; `OPERATOR`, `DEVELOPER`, and `ADMIN` may perform standard control mutations and read audit history.
 - Authenticated principal identity overrides body/query/header actor hints; actor spoofing cannot elevate role.
 - Direct service controls and Observer mutations are authorized through the existing PolicyEngine and retain audit/idempotency handling.
 - Policy / audit / `control_event_id` remain authoritative after identity is established.
