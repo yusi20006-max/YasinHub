@@ -43,6 +43,7 @@ from types import SimpleNamespace
 import pytest
 
 from yasinhub import ports
+from yasinhub.auth import AuthMode, reset_auth_for_tests
 from yasinhub import runit
 from yasinhub import service_lifecycle as lifecycle
 from yasinhub import service_manager as sm
@@ -54,6 +55,12 @@ from yasinhub.status_store import read_status
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _p0_test_auth():
+    reset_auth_for_tests(mode=AuthMode.TEST, tokens={})
+    yield
+    reset_auth_for_tests()
 
 def _free_test_port(exclude=()):
     for candidate in (7090, 7091, 7092, 7093, 7094, 7095, 7096, 7097, 7098, 7099):
