@@ -33,7 +33,7 @@ def test_slack_control_carries_canonical_role():
         api.handle = original
 
 
-def test_unmapped_slack_control_is_rejected_before_control_api():
+def test_unmapped_slack_control_is_rejected_before_control_api(monkeypatch):
     from yasinhub.interface.engine import YasinInterface
     from yasinhub.interface.session import SessionStore
     from yasinhub.interface.intents import Intent, IntentKind
