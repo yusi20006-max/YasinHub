@@ -439,12 +439,28 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             return
 
         if clean_path in ("/api/events/cleanup", "/api/events/clear"):
+            try:
+                auth = authenticate_http(getattr(self, "headers", {}) or {})
+            except AuthError as exc:
+                self.send_json({"success": False, "error": exc.message, "code": exc.code}, status=exc.status)
+                return
+            event_id = None
+            headers = getattr(self, "headers", {})
+            if hasattr(headers, "get"):
+                event_id = headers.get("X-Control-Event-ID") or headers.get("X-Idempotency-Key")
+            decision = get_policy_engine().authorize_and_record(
+                action="events_cleanup", actor=auth.actor, source="http-events",
+                control_event_id=event_id, role=auth.role, external_ids={"target": clean_path},
+            )
+            if not decision.allowed:
+                self.send_json({"success": False, "error": decision.reason, "policy": decision.policy}, status=403)
+                return
             from ..events_engine import cleanup_events
             success = cleanup_events()
             self.send_json({
                 "success": success,
                 "message": "Event storage cleaned up successfully" if success else "Failed to clean up event storage"
-            })
+            }, status=200 if success else 409)
             return
 
         if clean_path == "/api/audit":
