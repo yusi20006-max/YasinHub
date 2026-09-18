@@ -153,12 +153,20 @@ class FileAuditStore:
             items.append(row)
             if len(items) > self._retention_max:
                 items = items[-self._retention_max :]
-                self._rewrite(items)
+                try:
+                    self._rewrite(items)
+                    record_append_success()
+                except OSError as exc:
+                    record_append_failure(exc)
+                    logger.warning("audit_store_append_failed err=%s", type(exc).__name__)
+                    raise
             else:
                 try:
                     with self._path.open("a", encoding="utf-8") as fh:
                         fh.write(json.dumps(row, default=str) + "\n")
+                    record_append_success()
                 except OSError as exc:
+                    record_append_failure(exc)
                     logger.warning("audit_store_append_failed err=%s", type(exc).__name__)
             self._cache = items
 
