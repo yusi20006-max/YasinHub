@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from yasinhub.api.server import YasinHubHandler
+from yasinhub.auth import AuthMode, reset_auth_for_tests
 from yasinhub.observer import get_default_store
 from yasinhub.observer.execution_store import InvalidTransitionError, redact_secrets
 from yasinhub.observer.models import FleetSnapshot, WorkerSnapshot
@@ -17,8 +18,10 @@ from yasinhub.observer.models import FleetSnapshot, WorkerSnapshot
 
 @pytest.fixture(autouse=True)
 def _clean_store():
+    reset_auth_for_tests(mode=AuthMode.TEST, tokens={})
     store = get_default_store()
     store.clear()
+    reset_auth_for_tests()
     yield
     store.clear()
 
