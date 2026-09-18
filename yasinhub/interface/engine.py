@@ -115,7 +115,7 @@ class YasinInterface:
             )
 
         if intent.kind == IntentKind.CONFIRM_CONTROL:
-            return self._handle_confirm(intent, session, actor=actor or yasin_user_id or "anonymous")
+            return self._handle_confirm(intent, session, actor=actor or yasin_user_id or "anonymous", role=role)
 
         if intent.kind == IntentKind.CONTROL_REQUEST:
             return self._handle_control_request(
@@ -259,7 +259,7 @@ class YasinInterface:
             suggested_next_actions=[f"@Yasin confirm {token}", "@Yasin cancel control"],
         )
 
-    def _handle_confirm(self, intent: Intent, session: Session, *, actor: str) -> InterfaceResponse:
+    def _handle_confirm(self, intent: Intent, session: Session, *, actor: str, role: Optional[Role] = None) -> InterfaceResponse:
         token = intent.confirmation_token
         if not token:
             return InterfaceResponse(
@@ -330,7 +330,7 @@ class YasinInterface:
             execution_id=eid,
             control_event_id=control_event_id,
             metadata={"via": "yasin_interface", "confirmation_token": token},
-            role=self._canonical_role(session, pending.get("source") or "yasin-interface"),
+            role=self._canonical_role(session, pending.get("source") or "yasin-interface", role),
         )
         resp = self.control.handle(req)
 
