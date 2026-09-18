@@ -126,6 +126,7 @@ def test_pwa_confirmation_uses_same_secure_path():
 
     _, replay = _call(
         {"text": f"confirm {token}", "thread_id": "pwa-session-4"},
+        auth_token="test-token-ops-pwa",
     )
     assert replay["success"] is False
     assert replay["error"] in {"token_expired_or_unknown", "token_already_used"}
