@@ -122,6 +122,40 @@ def test_interface_production_blocks_unauthenticated_mutation_path():
     assert data["success"] is False
 
 
+def test_interface_production_viewer_cannot_confirm_control():
+    from yasinhub.auth import YasinPrincipal
+    from yasinhub.observer import get_default_store
+
+    reset_auth_for_tests(
+        mode=AuthMode.PRODUCTION,
+        tokens={
+            "test-token-viewer-zz": YasinPrincipal(
+                yasin_user_id="viewer", role=Role.VIEWER, auth_method="bearer_token"
+            ),
+        },
+    )
+    store = get_default_store()
+    store.clear()
+    snap = store.create_execution(task_id="pwa-rbac")
+    store.start(snap.execution_id)
+    store.fail(snap.execution_id, "expected failure")
+
+    status, first = _iface(
+        {"text": f"retry execution {snap.execution_id}", "thread_id": "pwa-rbac-thread"},
+        {"Authorization": "Bearer test-token-viewer-zz"},
+    )
+    assert status == 200
+    assert first["confirmation_required"] is True
+
+    status, confirmed = _iface(
+        {"text": f"confirm {first['confirmation_token']}", "thread_id": "pwa-rbac-thread"},
+        {"Authorization": "Bearer test-token-viewer-zz"},
+    )
+    assert status == 200
+    assert confirmed["success"] is False
+    assert confirmed["metadata"]["policy"]["allowed"] is False
+
+
 def test_interface_production_accepts_bearer():
     reset_auth_for_tests(mode=AuthMode.PRODUCTION, tokens=_tokens())
     status, data = _iface(
