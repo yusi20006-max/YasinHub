@@ -48,3 +48,18 @@ Existing JSONL records without `target` or `result` are normalized on read using
 ## Production durability
 
 When `YASIN_AUTH_MODE=production` (or production is inferred from configured auth tokens), audit persistence defaults to the existing `file` backend. Explicit `YASIN_AUDIT_BACKEND=memory` is rejected in production. Startup validates the audit directory before launching the Hub.
+
+
+## Audit persistence health (#192)
+
+The existing audit store exposes a safe operational status:
+- `healthy`: the most recent durable append succeeded and no current append failure is recorded.
+- `degraded`: one or more durable append attempts failed.
+- `append_failures`: current consecutive failure count.
+- `last_failure_at`: timestamp of the most recent failure.
+- `last_failure_type`: exception class only; no exception message, token, or record payload is exposed.
+
+The same status is available from `GET /api/health` under `audit_persistence` and from `GET /api/metrics`.
+A successful subsequent durable append clears the degraded signal. The signal is process-local operational state; the underlying durable append behavior and existing audit authorization remain unchanged.
+
+Operational response: treat `degraded` as an audit persistence incident, verify the configured durable directory and filesystem availability, and confirm recovery with a subsequent successful append/health check.

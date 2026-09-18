@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol
 
@@ -152,12 +153,20 @@ class FileAuditStore:
             items.append(row)
             if len(items) > self._retention_max:
                 items = items[-self._retention_max :]
-                self._rewrite(items)
+                try:
+                    self._rewrite(items)
+                    record_append_success()
+                except OSError as exc:
+                    record_append_failure(exc)
+                    logger.warning("audit_store_append_failed err=%s", type(exc).__name__)
+                    raise
             else:
                 try:
                     with self._path.open("a", encoding="utf-8") as fh:
                         fh.write(json.dumps(row, default=str) + "\n")
+                    record_append_success()
                 except OSError as exc:
+                    record_append_failure(exc)
                     logger.warning("audit_store_append_failed err=%s", type(exc).__name__)
             self._cache = items
 
@@ -200,6 +209,36 @@ class FileAuditStore:
 
 _store: Optional[AuditEventStore] = None
 _store_lock = threading.Lock()
+_status_lock = threading.Lock()
+_append_failures = 0
+_last_append_failure_at: Optional[float] = None
+_last_append_failure_type: Optional[str] = None
+
+def record_append_failure(exc: BaseException) -> None:
+    global _append_failures, _last_append_failure_at, _last_append_failure_type
+    with _status_lock:
+        _append_failures += 1
+        _last_append_failure_at = time.time()
+        _last_append_failure_type = type(exc).__name__
+
+def record_append_success() -> None:
+    global _append_failures, _last_append_failure_at, _last_append_failure_type
+    with _status_lock:
+        _append_failures = 0
+        _last_append_failure_at = None
+        _last_append_failure_type = None
+
+def get_audit_persistence_status() -> Dict[str, Any]:
+    with _status_lock:
+        failures = _append_failures
+        last_at = _last_append_failure_at
+        last_type = _last_append_failure_type
+    return {
+        "status": "degraded" if failures else "healthy",
+        "append_failures": failures,
+        "last_failure_at": last_at,
+        "last_failure_type": last_type,
+    }
 
 
 def _retention_max() -> int:
