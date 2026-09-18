@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol
 
@@ -200,6 +201,36 @@ class FileAuditStore:
 
 _store: Optional[AuditEventStore] = None
 _store_lock = threading.Lock()
+_status_lock = threading.Lock()
+_append_failures = 0
+_last_append_failure_at: Optional[float] = None
+_last_append_failure_type: Optional[str] = None
+
+def record_append_failure(exc: BaseException) -> None:
+    global _append_failures, _last_append_failure_at, _last_append_failure_type
+    with _status_lock:
+        _append_failures += 1
+        _last_append_failure_at = time.time()
+        _last_append_failure_type = type(exc).__name__
+
+def record_append_success() -> None:
+    global _append_failures, _last_append_failure_at, _last_append_failure_type
+    with _status_lock:
+        _append_failures = 0
+        _last_append_failure_at = None
+        _last_append_failure_type = None
+
+def get_audit_persistence_status() -> Dict[str, Any]:
+    with _status_lock:
+        failures = _append_failures
+        last_at = _last_append_failure_at
+        last_type = _last_append_failure_type
+    return {
+        "status": "degraded" if failures else "healthy",
+        "append_failures": failures,
+        "last_failure_at": last_at,
+        "last_failure_type": last_type,
+    }
 
 
 def _retention_max() -> int:
