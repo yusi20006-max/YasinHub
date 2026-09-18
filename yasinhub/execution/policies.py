@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 PRIVILEGED_OPS = {"merge", "production_merge", "force_push", "delete_branch"}
 
 CONTROL_MUTATION_ROLES = {Role.OPERATOR, Role.DEVELOPER, Role.ADMIN}
+AUDIT_READ_ROLES = {Role.OPERATOR, Role.DEVELOPER, Role.ADMIN}
 CONTROL_MUTATION_ACTIONS = {"start", "stop", "restart", "cancel", "retry", "re-run", "approve", "reject", "pause", "resume", "fleet_cancel"}
 
 
@@ -41,6 +42,8 @@ class AuditRecord:
     policy_decision: str
     action: str
     outcome: str
+    target: str
+    result: str
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -56,6 +59,8 @@ class AuditRecord:
                 "policy_decision": self.policy_decision,
                 "action": self.action,
                 "outcome": self.outcome,
+                "target": self.target,
+                "result": self.result,
                 "metadata": dict(self.metadata),
             }
         )
@@ -67,6 +72,9 @@ class PolicyEngine:
         self._approvals: Dict[str, Dict[str, Any]] = {}
         self._audit: List[AuditRecord] = []
         self._seen_control: Set[str] = set()
+
+    def can_read_audit(self, role: Optional[Role]) -> bool:
+        return role in AUDIT_READ_ROLES
 
     def evaluate(
         self,
@@ -226,6 +234,8 @@ class PolicyEngine:
         execution_id: Optional[str] = None,
         external_ids: Optional[Dict[str, str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        target: Optional[str] = None,
+        result: Optional[str] = None,
     ) -> AuditRecord:
         rec = AuditRecord(
             audit_id=f"aud-{uuid.uuid4().hex[:16]}",
@@ -238,6 +248,8 @@ class PolicyEngine:
             policy_decision=policy_decision,
             action=action,
             outcome=outcome,
+            target=str(target or execution_id or (external_ids or {}).get("target") or ""),
+            result=str(result or outcome),
             metadata=dict(metadata or {}),
         )
         with self._lock:
