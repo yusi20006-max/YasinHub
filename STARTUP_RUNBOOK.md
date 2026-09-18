@@ -131,7 +131,25 @@ PWA → YasinHub → Runit → Service
 `yasinhub/service_manager.py`. تست متمرکز:
 `tests/test_issue182_selfhealing_services.py`.
 
-## 7. Health check
+## 7. Production durability
+
+Production mode requires durable audit and execution persistence. Fresh production defaults are:
+
+- Audit: `file` backend at `~/.yasinhub/audit` (override with `YASIN_AUDIT_DIR`).
+- Execution: existing lifecycle persistence at `~/.yasinhub/executions` (override with `YASIN_EXECUTION_STORE_DIR`).
+- `memory` audit/execution mode is explicit development/test behavior and is rejected in production.
+
+Optional explicit configuration:
+
+```bash
+export YASIN_AUTH_MODE=production
+export YASIN_AUDIT_BACKEND=file
+export YASIN_EXECUTION_BACKEND=file
+```
+
+The official startup command validates both durable directories before binding the Control Plane. Invalid or unwritable production persistence configuration fails closed.
+
+## 8. Health check
 در ترمینال دوم:
 
 ```bash
@@ -153,7 +171,7 @@ curl -i http://127.0.0.1:7000/api/services
 
 باید سرویس‌های اکوسیستم، از جمله `yasin-agent`، در خروجی دیده شوند.
 
-## 8. اجرای Agent از طریق Hub — مسیر استاندارد
+## 9. اجرای Agent از طریق Hub — مسیر استاندارد
 
 مسیر استاندارد Control Plane این است که Agent را خود YasinHub مدیریت کند:
 
@@ -178,7 +196,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7002/v1/ready
 
 هر دو باید پاسخ موفق بدهند و `ready` برای readiness برابر `true` باشد.
 
-## 9. PWA
+## 10. PWA
 
 مرورگر را روی این آدرس باز کنید:
 
@@ -188,7 +206,7 @@ http://127.0.0.1:7000/dashboard/
 
 بعد از هر عملیات Start/Stop/Restart، Dashboard و Status باید دوباره از API خوانده شوند.
 
-## 10. تست واقعی Lifecycle
+## 11. تست واقعی Lifecycle
 
 برای اطمینان از اینکه Control Plane فقط UI نیست، این چرخه را انجام دهید:
 
@@ -203,7 +221,7 @@ python -m yasinhub.cli status
 
 برای اثبات Restart واقعی، PID قبل و بعد را مقایسه کنید؛ Restart موفق باید Process جدید ایجاد کند.
 
-## 11. اجرای دستی Agent — فقط برای عیب‌یابی
+## 12. اجرای دستی Agent — فقط برای عیب‌یابی
 
 اگر لازم شد Agent مستقل از Hub اجرا شود:
 
@@ -221,7 +239,7 @@ export YASIN_AGENT_SERVICE_TOKEN='YOUR_TOKEN'
 
 این حالت نباید هم‌زمان با Agent مدیریت‌شده توسط Hub اجرا شود؛ در غیر این صورت ممکن است Port 7002 یا Process تکراری ایجاد شود.
 
-## 12. توقف کامل
+## 13. توقف کامل
 
 ابتدا Agent را از طریق Hub متوقف کنید:
 
@@ -232,7 +250,7 @@ python -m yasinhub.cli stop yasin-agent
 
 سپس Process مربوط به YasinHub API را با روش مناسب همان session متوقف کنید (`Ctrl+C` در ترمینالی که سرور در آن اجراست).
 
-## 13. نکات مهم ثبت‌شده از اجرای واقعی
+## 14. نکات مهم ثبت‌شده از اجرای واقعی
 
 - پورت YasinHub API: `7000`
 - پورت HTTP Yasin-Agent: `7002`
@@ -246,7 +264,7 @@ python -m yasinhub.cli stop yasin-agent
 - Lifecycle سرویس با PID واقعی بررسی می‌شود؛ صرفاً نمایش وضعیت PWA معیار موفقیت نیست.
 - بسته شدن Termux می‌تواند Processهای foreground را متوقف کند؛ پس بعد از باز کردن مجدد Termux، Health API را دوباره بررسی کنید.
 
-## 14. چک‌لیست شروع سریع دفعه بعد
+## 15. چک‌لیست شروع سریع دفعه بعد
 
 ```text
 [ ] cd ~/YasinEco/YasinHub
@@ -265,7 +283,7 @@ python -m yasinhub.cli stop yasin-agent
 [ ] Start/Stop/Restart و تغییر PID قابل اثبات است
 ```
 
-## 15. اصل عملیاتی
+## 16. اصل عملیاتی
 
 **اول Health، بعد Control، بعد PWA.**
 
