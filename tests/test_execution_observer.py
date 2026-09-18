@@ -21,9 +21,9 @@ def _clean_store():
     reset_auth_for_tests(mode=AuthMode.TEST, tokens={})
     store = get_default_store()
     store.clear()
-    reset_auth_for_tests()
     yield
     store.clear()
+    reset_auth_for_tests()
 
 
 @pytest.fixture
