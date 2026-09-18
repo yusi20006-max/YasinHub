@@ -97,6 +97,7 @@ def handle_interface_routes(
                 "role": auth.role.value,
                 "authenticated": auth.authenticated,
             },
+            role=auth.role,
         )
     )
     send_json(response.as_dict())

@@ -64,6 +64,7 @@ class YasinInterface:
         actor: Optional[str] = None,
         require_mention: bool = True,
         bot_user_id: Optional[str] = None,
+        role: Optional[Role] = None,
     ) -> InterfaceResponse:
         if require_mention and channel == "slack" and not is_yasin_addressed(text, bot_user_id=bot_user_id):
             return InterfaceResponse(answer="", success=False, error="not_addressed", confidence=0.0)
@@ -114,11 +115,11 @@ class YasinInterface:
             )
 
         if intent.kind == IntentKind.CONFIRM_CONTROL:
-            return self._handle_confirm(intent, session, actor=actor or yasin_user_id or "anonymous")
+            return self._handle_confirm(intent, session, actor=actor or yasin_user_id or "anonymous", role=role)
 
         if intent.kind == IntentKind.CONTROL_REQUEST:
             return self._handle_control_request(
-                intent, session, actor=actor or yasin_user_id or "anonymous", source=source
+                intent, session, actor=actor or yasin_user_id or "anonymous", source=source, role=role
             )
 
         return self._handle_read(
@@ -188,13 +189,13 @@ class YasinInterface:
 
 
     @staticmethod
-    def _canonical_role(session: Session, source: str) -> Optional[Role]:
-        if source != "slack" or not getattr(session, "slack_user_id", None):
-            return None
-        identity = IdentityStore().resolve(session.slack_user_id)
-        return Role(identity.role.value) if identity else None
+    def _canonical_role(session: Session, source: str, role: Optional[Role] = None) -> Optional[Role]:
+        if source == "slack" and getattr(session, "slack_user_id", None):
+            identity = IdentityStore().resolve(session.slack_user_id)
+            return Role(identity.role.value) if identity else None
+        return role
 
-    def _handle_control_request(self, intent: Intent, session: Session, *, actor: str, source: str) -> InterfaceResponse:
+    def _handle_control_request(self, intent: Intent, session: Session, *, actor: str, source: str, role: Optional[Role] = None) -> InterfaceResponse:
         op = (intent.control_operation or "").lower()
         eid = intent.execution_id
         if not op:
@@ -204,7 +205,7 @@ class YasinInterface:
                 confidence=0.3,
                 uncertainty="missing_operation",
             )
-        canonical_role = self._canonical_role(session, source)
+        canonical_role = self._canonical_role(session, source, role)
         if source == "slack" and session.slack_user_id and canonical_role is None:
             return InterfaceResponse(
                 answer="Your Slack user is not mapped to a Yasin identity.",
@@ -258,7 +259,7 @@ class YasinInterface:
             suggested_next_actions=[f"@Yasin confirm {token}", "@Yasin cancel control"],
         )
 
-    def _handle_confirm(self, intent: Intent, session: Session, *, actor: str) -> InterfaceResponse:
+    def _handle_confirm(self, intent: Intent, session: Session, *, actor: str, role: Optional[Role] = None) -> InterfaceResponse:
         token = intent.confirmation_token
         if not token:
             return InterfaceResponse(
@@ -329,7 +330,7 @@ class YasinInterface:
             execution_id=eid,
             control_event_id=control_event_id,
             metadata={"via": "yasin_interface", "confirmation_token": token},
-            role=self._canonical_role(session, pending.get("source") or "yasin-interface"),
+            role=self._canonical_role(session, pending.get("source") or "yasin-interface", role),
         )
         resp = self.control.handle(req)
 

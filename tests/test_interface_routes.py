@@ -8,6 +8,7 @@ from io import BytesIO
 import pytest
 
 from yasinhub.interface.ai import FakeAIProvider, reset_ai_provider_for_tests, set_ai_provider
+from yasinhub.auth import AuthMode, Role, YasinPrincipal, reset_auth_for_tests
 from yasinhub.interface.engine import reset_yasin_interface_for_tests
 from yasinhub.interface.session import reset_session_store_for_tests
 from yasinhub.observer.execution_store import get_default_store
@@ -28,7 +29,7 @@ def _reset():
     reset_shared_state_for_tests(MemorySharedState())
 
 
-def _call(body, *, method="POST", actor="ops1"):
+def _call(body, *, method="POST", actor="ops1", auth_token=None):
     payload = json.dumps(body).encode("utf-8")
     responses = []
 
@@ -39,7 +40,7 @@ def _call(body, *, method="POST", actor="ops1"):
         "/api/interface",
         method,
         "/api/interface",
-        {"Content-Length": str(len(payload)), "X-Actor": actor},
+        {**{"Content-Length": str(len(payload)), "X-Actor": actor}, **({"Authorization": f"Bearer {auth_token}"} if auth_token else {})},
         BytesIO(payload),
         send_json,
     )
@@ -93,6 +94,16 @@ def test_pwa_control_request_returns_confirmation_token():
 
 
 def test_pwa_confirmation_uses_same_secure_path():
+    reset_auth_for_tests(
+        mode=AuthMode.PRODUCTION,
+        tokens={
+            "test-token-ops-pwa": YasinPrincipal(
+                yasin_user_id="ops1",
+                role=Role.OPERATOR,
+                auth_method="bearer_token",
+            )
+        },
+    )
     store = get_default_store()
     snap = store.create_execution(task_id="pwa", execution_id="exec_pwa_3")
     store.start(snap.execution_id)
@@ -100,11 +111,13 @@ def test_pwa_confirmation_uses_same_secure_path():
 
     _, proposal = _call(
         {"text": "retry execution exec_pwa_3", "thread_id": "pwa-session-4"},
+        auth_token="test-token-ops-pwa",
     )
     token = proposal["confirmation_token"]
 
     status, result = _call(
         {"text": f"confirm {token}", "thread_id": "pwa-session-4"},
+        auth_token="test-token-ops-pwa",
     )
 
     assert status == 200
@@ -113,6 +126,7 @@ def test_pwa_confirmation_uses_same_secure_path():
 
     _, replay = _call(
         {"text": f"confirm {token}", "thread_id": "pwa-session-4"},
+        auth_token="test-token-ops-pwa",
     )
     assert replay["success"] is False
     assert replay["error"] in {"token_expired_or_unknown", "token_already_used"}

@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Protocol
 
+from ..auth.models import Role
+
 from .engine import YasinInterface, get_yasin_interface
 from .response import InterfaceResponse
 
@@ -27,6 +29,7 @@ class ChannelMessage:
     bot_user_id: Optional[str] = None
     require_mention: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
+    role: Optional[Role] = None
 
 
 class ChannelAdapter(Protocol):
@@ -56,6 +59,7 @@ class BaseChannelAdapter:
             actor=message.actor or message.yasin_user_id or message.slack_user_id or "anonymous",
             require_mention=message.require_mention,
             bot_user_id=message.bot_user_id,
+            role=message.role,
         )
 
 
