@@ -1,4 +1,4 @@
-"""
+import pytest\n\npytestmark = pytest.mark.resource_sensitive\n"""
 tests/test_service_management_ops.py
 تست‌های جامع برای مدیریت چرخه‌ی حیات سرویس‌ها و ردیابی پروسس‌ها در YasinHub.
 """
