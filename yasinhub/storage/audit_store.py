@@ -213,11 +213,15 @@ def _retention_max() -> int:
 
 
 def create_audit_store_from_env() -> AuditEventStore:
-    backend = (os.environ.get("YASIN_AUDIT_BACKEND") or "memory").strip().lower()
+    production = (os.environ.get("YASIN_AUTH_MODE") or "").strip().lower() == "production"
+    default_backend = "file" if production else "memory"
+    backend = (os.environ.get("YASIN_AUDIT_BACKEND") or default_backend).strip().lower()
     retention = _retention_max()
     if backend == "file":
-        directory = (os.environ.get("YASIN_AUDIT_DIR") or "").strip() or "/tmp/yasin-audit"
+        directory = (os.environ.get("YASIN_AUDIT_DIR") or "").strip() or os.path.expanduser("~/.yasinhub/audit")
         return FileAuditStore(directory, retention_max=retention)
+    if production:
+        raise RuntimeError("production audit persistence cannot use memory backend")
     return MemoryAuditStore(retention_max=retention)
 
 

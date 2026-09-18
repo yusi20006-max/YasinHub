@@ -61,7 +61,13 @@ def install(store_cls, *, redact_secrets, InvalidTransitionError) -> None:
 
     def __init__(self, *args, durable_dir: Optional[str] = None, **kwargs):
         _orig_init(self, *args, **kwargs)
+        production = (os.environ.get("YASIN_AUTH_MODE") or "").strip().lower() in ("production", "prod")
+        backend = (os.environ.get("YASIN_EXECUTION_BACKEND") or "").strip().lower()
+        if backend == "memory" and production:
+            raise RuntimeError("production execution persistence cannot use memory backend")
         raw = durable_dir or (os.environ.get("YASIN_EXECUTION_STORE_DIR") or "").strip() or None
+        if raw is None and production:
+            raw = os.path.expanduser("~/.yasinhub/executions")
         self._durable_dir = Path(raw) if raw else None
         if self._durable_dir is not None:
             self._durable_dir.mkdir(parents=True, exist_ok=True)

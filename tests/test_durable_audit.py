@@ -114,3 +114,19 @@ def test_list_audit_query_filters():
     )
     rows = engine.list_audit(limit=50, actor="carol", action="cancel")
     assert any(r.get("execution_id") == "exec_c" for r in rows)
+
+
+def test_production_audit_defaults_to_file(monkeypatch, tmp_path):
+    from yasinhub.storage.audit_store import FileAuditStore, create_audit_store_from_env
+    monkeypatch.setenv("YASIN_AUTH_MODE", "production")
+    monkeypatch.delenv("YASIN_AUDIT_BACKEND", raising=False)
+    monkeypatch.setenv("YASIN_AUDIT_DIR", str(tmp_path))
+    assert isinstance(create_audit_store_from_env(), FileAuditStore)
+
+
+def test_production_audit_rejects_explicit_memory(monkeypatch):
+    from yasinhub.storage.audit_store import create_audit_store_from_env
+    monkeypatch.setenv("YASIN_AUTH_MODE", "production")
+    monkeypatch.setenv("YASIN_AUDIT_BACKEND", "memory")
+    with pytest.raises(RuntimeError, match="production audit persistence"):
+        create_audit_store_from_env()

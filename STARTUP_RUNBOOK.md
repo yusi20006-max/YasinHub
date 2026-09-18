@@ -270,3 +270,13 @@ python -m yasinhub.cli stop yasin-agent
 **اول Health، بعد Control، بعد PWA.**
 
 اگر API بالا نیست، PWA ممکن است فقط از Cache نمایش داده شود و نباید آن را به‌عنوان سالم بودن Control Plane تلقی کرد.
+
+
+## 16. Production durability (#189)
+
+When `YASIN_AUTH_MODE=production`, YasinHub uses durable persistence by default:
+- audit: `file` backend under `~/.yasinhub/audit` (override with `YASIN_AUDIT_DIR`);
+- execution state: `~/.yasinhub/executions` (override with `YASIN_EXECUTION_STORE_DIR`).
+
+Production explicitly rejects `YASIN_AUDIT_BACKEND=memory` and `YASIN_EXECUTION_BACKEND=memory`.
+Memory-only operation is reserved for explicit development/test configuration. Existing configured durable paths remain authoritative and are not migrated or deleted automatically.

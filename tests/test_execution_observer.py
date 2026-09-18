@@ -426,3 +426,22 @@ def test_api_fleet_cancel(api_server, store):
     data, status = _post(f"{api_server}/api/fleets/f-cancel/cancel", {"actor": "ops"})
     assert status == 200 and data["success"] is True
     assert data["fleet"]["workers"][0]["status"] == "cancelled"
+
+
+def test_production_execution_defaults_to_durable(monkeypatch, tmp_path):
+    from yasinhub.observer.execution_store import ExecutionObserverStore
+    monkeypatch.setenv("YASIN_AUTH_MODE", "production")
+    monkeypatch.delenv("YASIN_EXECUTION_BACKEND", raising=False)
+    monkeypatch.setenv("YASIN_EXECUTION_STORE_DIR", str(tmp_path))
+    store = ExecutionObserverStore()
+    snap = store.create_execution(task_id="durable-default")
+    assert (tmp_path / f"{snap.execution_id}.json").exists()
+
+
+def test_production_execution_rejects_explicit_memory(monkeypatch):
+    from yasinhub.observer.execution_store import ExecutionObserverStore
+    monkeypatch.setenv("YASIN_AUTH_MODE", "production")
+    monkeypatch.setenv("YASIN_EXECUTION_BACKEND", "memory")
+    monkeypatch.delenv("YASIN_EXECUTION_STORE_DIR", raising=False)
+    with pytest.raises(RuntimeError, match="production execution persistence"):
+        ExecutionObserverStore()
