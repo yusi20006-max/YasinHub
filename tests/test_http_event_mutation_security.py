@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
 from yasinhub.api.server import YasinHubHandler
 from yasinhub.auth import AuthMode, Role, YasinPrincipal, reset_auth_for_tests
-from yasinhub.execution.policies import get_policy_engine, reset_policy_engine_for_tests
-import pytest
+from yasinhub.execution.policies import get_policy_engine
+from yasinhub.storage.audit_store import reset_audit_store_for_tests
+import yasinhub.execution.policies as policies
 
 
 class _Request(YasinHubHandler):
@@ -41,9 +44,12 @@ def _auth():
             "viewer-token": YasinPrincipal("viewer-190", Role.VIEWER, auth_method="bearer_token"),
         },
     )
-    reset_policy_engine_for_tests()
+    reset_audit_store_for_tests()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(policies, "_engine", None)
     yield
-    reset_policy_engine_for_tests()
+    reset_audit_store_for_tests()
+    monkeypatch.undo()
     reset_auth_for_tests()
 
 
