@@ -39,7 +39,7 @@ run_batch() {
   local -a files=("$@")
   local start end rc
   start="$(date +%s)"
-  printf '\n[%s] batch %d (%d file%s)\n' "$(date -Iseconds)" "$batch_index" "${#files[@]}" "${#files[@]:1:+s}" | tee -a "$LOG_FILE"
+  printf '\n[%s] batch %d (%d file(s))\n' "$(date -Iseconds)" "$batch_index" "${#files[@]}" | tee -a "$LOG_FILE"
   printf 'files: %s\n' "${files[*]}" | tee -a "$LOG_FILE"
 
   set +e
