@@ -184,13 +184,37 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             return
 
         if clean_path in ("/api/events/cleanup", "/api/events/clear"):
+            try:
+                auth = authenticate_http(getattr(self, "headers", {}) or {})
+            except AuthError as exc:
+                self.send_json({"success": False, "error": exc.message, "code": exc.code}, status=exc.status)
+                return True
+            action = "cleanup" if clean_path.endswith("/cleanup") else "clear"
+            headers = getattr(self, "headers", {}) or {}
+            control_event_id = headers.get("X-Control-Event-ID") or headers.get("X-Idempotency-Key")
+            decision = get_policy_engine().authorize_and_record(
+                action=action,
+                actor=auth.actor,
+                source="http-events",
+                control_event_id=control_event_id,
+                role=auth.role,
+            )
+            if not decision.allowed:
+                self.send_json({
+                    "success": False,
+                    "error": decision.reason,
+                    "policy": decision.policy,
+                }, status=403)
+                return True
             from ..events_engine import cleanup_events
             success = cleanup_events()
             self.send_json({
                 "success": success,
+                "action": action,
+                "success": success,
                 "message": "Event storage cleaned up successfully" if success else "Failed to clean up event storage"
-            })
-            return
+            }, status=200 if success else 409)
+            return True
 
         self.send_response(404)
         self.end_headers()
@@ -423,13 +447,37 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             return
 
         if clean_path in ("/api/events/cleanup", "/api/events/clear"):
+            try:
+                auth = authenticate_http(getattr(self, "headers", {}) or {})
+            except AuthError as exc:
+                self.send_json({"success": False, "error": exc.message, "code": exc.code}, status=exc.status)
+                return True
+            action = "cleanup" if clean_path.endswith("/cleanup") else "clear"
+            headers = getattr(self, "headers", {}) or {}
+            control_event_id = headers.get("X-Control-Event-ID") or headers.get("X-Idempotency-Key")
+            decision = get_policy_engine().authorize_and_record(
+                action=action,
+                actor=auth.actor,
+                source="http-events",
+                control_event_id=control_event_id,
+                role=auth.role,
+            )
+            if not decision.allowed:
+                self.send_json({
+                    "success": False,
+                    "error": decision.reason,
+                    "policy": decision.policy,
+                }, status=403)
+                return True
             from ..events_engine import cleanup_events
             success = cleanup_events()
             self.send_json({
                 "success": success,
+                "action": action,
+                "success": success,
                 "message": "Event storage cleaned up successfully" if success else "Failed to clean up event storage"
-            })
-            return
+            }, status=200 if success else 409)
+            return True
 
         if clean_path == "/api/audit":
             try:
