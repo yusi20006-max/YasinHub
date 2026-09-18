@@ -19,6 +19,7 @@ from ...execution.control_api import ControlRequest, get_control_api
 from ...interface.session import get_session_store
 from ...observer import get_default_store
 from .events import SlackInboundEvent
+from ...auth.models import Role
 from .permissions import (
     AuthorizationError,
     IdentityStore,
