@@ -15,6 +15,8 @@ from ..service_manager import start_service, stop_service, restart_service
 from ..pid_store import read_pid, is_pid_alive
 from ..pwa_version import version_payload
 from .service_control_helpers import service_runtime_snapshot, status_project_payload
+from ..auth import AuthError, authenticate_http
+from ..execution.policies import get_policy_engine
 
 
 class YasinHubHandler(BaseHTTPRequestHandler):
@@ -45,7 +47,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
         self.wfile.write(payload)
 
-    def handle_control(self, clean_path: str) -> bool:
+    def handle_control(self, clean_path: str, method: str, headers) -> bool:
         """پردازش دستورات کنترلی سرویس‌ها — پاسخ از runtime واقعی پس از عملیات."""
         if clean_path.startswith("/api/control/"):
             parts = clean_path.split("/")
@@ -54,6 +56,31 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
             service = parts[3]
             action = parts[4]
+
+            try:
+                auth = authenticate_http(headers or {})
+            except AuthError as exc:
+                self.send_json({"success": False, "error": exc.message, "code": exc.code}, status=exc.status)
+                return True
+
+            control_event_id = None
+            if hasattr(headers, "get"):
+                control_event_id = headers.get("X-Control-Event-ID") or headers.get("X-Idempotency-Key")
+            decision = get_policy_engine().authorize_and_record(
+                action=action,
+                actor=auth.actor,
+                source="http-service-control",
+                control_event_id=control_event_id,
+                role=auth.role,
+            )
+            if not decision.allowed:
+                self.send_json({
+                    "success": False,
+                    "action": action,
+                    "error": decision.reason,
+                    "policy": decision.policy,
+                }, status=403)
+                return True
 
             projects = default_registry()
             project = next(
@@ -120,7 +147,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         ):
             return
 
-        if self.handle_control(clean_path):
+        if self.handle_control(clean_path, "POST", getattr(self, "headers", {})):
             return
 
         from .integration_routes import handle_integration_routes
@@ -187,7 +214,7 @@ class YasinHubHandler(BaseHTTPRequestHandler):
         ):
             return
 
-        if self.handle_control(clean_path):
+        if self.handle_control(clean_path, "GET", getattr(self, "headers", {})):
             return
 
         from .integration_routes import handle_integration_routes

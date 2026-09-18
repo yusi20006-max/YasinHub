@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
+from yasinhub.auth import AuthMode, reset_auth_for_tests
 from yasinhub.adapters.agent_runtime import (
     IntegrationContext,
     bind_agent_runtime,
@@ -23,6 +24,12 @@ from yasinhub.observer import get_default_store
 from yasinhub.observer.execution_store import InvalidTransitionError
 from yasinhub.observer.models import FleetSnapshot, WorkerSnapshot
 
+
+@pytest.fixture(autouse=True)
+def _p0_test_auth():
+    reset_auth_for_tests(mode=AuthMode.TEST, tokens={})
+    yield
+    reset_auth_for_tests()
 
 class _MockRecord:
     def __init__(self, **kwargs):

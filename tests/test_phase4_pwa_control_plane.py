@@ -10,6 +10,13 @@ import pytest
 
 from tests.test_api_server import DummyHandler, MockRequest
 from yasinhub.registry import ProjectEntry
+from yasinhub.auth import AuthMode, reset_auth_for_tests
+
+@pytest.fixture(autouse=True)
+def _p0_test_auth():
+    reset_auth_for_tests(mode=AuthMode.TEST, tokens={})
+    yield
+    reset_auth_for_tests()
 
 ROOT = Path(__file__).resolve().parents[1]
 DASH = ROOT / "dashboard"

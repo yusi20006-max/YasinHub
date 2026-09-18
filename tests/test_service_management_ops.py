@@ -9,12 +9,19 @@ import signal
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import pytest
+from yasinhub.auth import AuthMode, reset_auth_for_tests
 
 from yasinhub.registry import ProjectEntry
 from yasinhub.pid_store import save_pid, read_pid, remove_pid, is_pid_alive
 from yasinhub.service_manager import start_service, stop_service, restart_service
 from yasinhub.report import build_report, ProjectReport
 
+
+@pytest.fixture(autouse=True)
+def _p0_test_auth():
+    reset_auth_for_tests(mode=AuthMode.TEST, tokens={})
+    yield
+    reset_auth_for_tests()
 
 @pytest.fixture
 def patch_pid_dir(tmp_path, monkeypatch):

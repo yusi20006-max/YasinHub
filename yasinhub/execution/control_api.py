@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ..adapters.agent_runtime import IntegrationContext, get_runtime_adapter
+from ..auth.models import Role
 from ..observer.execution_store import InvalidTransitionError, get_default_store
 from .correlation import get_correlation_store
 from .policies import get_policy_engine
@@ -32,9 +33,15 @@ class ControlRequest:
     control_event_id: Optional[str] = None
     target_action: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    role: Optional[Role] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ControlRequest":
+        role_value = str((data.get("metadata") or {}).get("role") or "").upper()
+        try:
+            role = Role(role_value) if role_value else None
+        except ValueError:
+            role = None
         return cls(
             action=str(data.get("action") or "").lower().strip(),
             actor=str(data.get("actor") or "anonymous"),
@@ -44,6 +51,7 @@ class ControlRequest:
             control_event_id=data.get("control_event_id") or data.get("idempotency_key"),
             target_action=data.get("target_action"),
             metadata=dict(data.get("metadata") or {}),
+            role=role,
         )
 
 
@@ -115,6 +123,7 @@ class ControlAPI:
             execution_id=execution_id,
             correlation_id=corr_id,
             control_event_id=request.control_event_id,
+            role=request.role,
             external_ids={
                 k: str(v)
                 for k, v in (request.metadata or {}).items()

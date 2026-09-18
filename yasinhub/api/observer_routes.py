@@ -5,7 +5,9 @@ import json
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
-from ..adapters.agent_runtime import get_runtime_adapter, resolve_integration_context
+from ..adapters.agent_runtime import IntegrationContext, get_runtime_adapter
+from ..auth import AuthError, authenticate_http
+from ..execution.policies import get_policy_engine
 from ..observer import get_default_store
 from ..observer.execution_store import InvalidTransitionError
 
@@ -27,6 +29,49 @@ def read_json_body(headers, rfile) -> dict:
         return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, UnicodeDecodeError):
         return {"__malformed__": True}
+
+
+def _authorize_mutation(action: str, target_id: str, body: dict, headers, send_json):
+    try:
+        auth = authenticate_http(
+            headers or {},
+            body_actor=str(body.get("actor")) if body.get("actor") else None,
+        )
+    except AuthError as exc:
+        send_json({"success": False, "error": exc.message, "code": exc.code}, status=exc.status)
+        return None
+
+    control_event_id = body.get("control_event_id") or body.get("idempotency_key")
+    if not control_event_id and hasattr(headers, "get"):
+        control_event_id = headers.get("X-Control-Event-ID") or headers.get("X-Idempotency-Key")
+    decision = get_policy_engine().authorize_and_record(
+        action=action,
+        actor=auth.actor,
+        source="http-observer",
+        execution_id=target_id if action != "fleet_cancel" else None,
+        control_event_id=str(control_event_id) if control_event_id else None,
+        role=auth.role,
+        external_ids={"task_id": target_id} if action == "fleet_cancel" else None,
+    )
+    if not decision.allowed:
+        send_json({
+            "success": False,
+            "error": decision.reason,
+            "policy": decision.policy,
+        }, status=403)
+        return None
+
+    request_id = (
+        body.get("request_id")
+        or (headers.get("X-Request-Id") if headers and hasattr(headers, "get") else None)
+        or f"req-{__import__('uuid').uuid4().hex[:16]}"
+    )
+    return IntegrationContext(
+        request_id=str(request_id),
+        actor=auth.actor,
+        source="http-observer",
+        metadata={"role": auth.role.value, "auth_method": auth.principal.auth_method},
+    )
 
 
 def handle_execution_observer(
@@ -129,7 +174,9 @@ def handle_execution_observer(
             if body.get("__malformed__"):
                 send_json({"success": False, "error": "malformed request body"}, status=400)
                 return True
-            ctx = resolve_integration_context(body, headers=headers)
+            ctx = _authorize_mutation(action, eid, body, headers, send_json)
+            if ctx is None:
+                return True
             try:
                 if action == "pause":
                     rec = adapter.pause(eid, context=ctx)
@@ -177,7 +224,9 @@ def handle_execution_observer(
         if body.get("__malformed__"):
             send_json({"success": False, "error": "malformed request body"}, status=400)
             return True
-        ctx = resolve_integration_context(body, headers=headers)
+        ctx = _authorize_mutation("fleet_cancel", task_id, body, headers, send_json)
+        if ctx is None:
+            return True
         try:
             fleet = adapter.cancel_fleet(task_id, context=ctx)
             send_json({

@@ -8,6 +8,7 @@ from io import BytesIO
 from unittest.mock import patch, MagicMock
 import pytest
 from yasinhub.api.server import YasinHubHandler
+from yasinhub.auth import AuthMode, reset_auth_for_tests
 from yasinhub.registry import ProjectEntry
 
 
@@ -51,6 +52,13 @@ class DummyHandler(YasinHubHandler):
 
     def end_headers(self):
         pass
+
+
+@pytest.fixture(autouse=True)
+def _test_auth_mode():
+    reset_auth_for_tests(mode=AuthMode.TEST, tokens={})
+    yield
+    reset_auth_for_tests()
 
 
 @pytest.fixture

@@ -9,11 +9,16 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
+from ..auth.models import Role
+
 from ..observer.execution_store import redact_secrets
 
 logger = logging.getLogger(__name__)
 
 PRIVILEGED_OPS = {"merge", "production_merge", "force_push", "delete_branch"}
+
+CONTROL_MUTATION_ROLES = {Role.OPERATOR, Role.DEVELOPER, Role.ADMIN}
+CONTROL_MUTATION_ACTIONS = {"start", "stop", "restart", "cancel", "retry", "re-run", "approve", "reject", "pause", "resume", "fleet_cancel"}
 
 
 @dataclass
@@ -71,8 +76,11 @@ class PolicyEngine:
         repository: Optional[str] = None,
         branch: Optional[str] = None,
         execution_id: Optional[str] = None,
+        role: Optional[Role] = None,
     ) -> PolicyDecision:
         action_l = action.lower()
+        if action_l in CONTROL_MUTATION_ACTIONS and role is not None and role not in CONTROL_MUTATION_ROLES:
+            return PolicyDecision(False, f"role '{role.value}' is not authorized for control mutation", "role-based-access-control", False)
         if action_l in PRIVILEGED_OPS:
             key = f"{execution_id}:{action_l}"
             with self._lock:
@@ -161,6 +169,7 @@ class PolicyEngine:
         correlation_id: Optional[str] = None,
         external_ids: Optional[Dict[str, str]] = None,
         control_event_id: Optional[str] = None,
+        role: Optional[Role] = None,
         **policy_kwargs: Any,
     ) -> PolicyDecision:
         if control_event_id:
@@ -188,7 +197,7 @@ class PolicyEngine:
             with self._lock:
                 self._seen_control.add(control_event_id)
 
-        decision = self.evaluate(action=action, execution_id=execution_id, **policy_kwargs)
+        decision = self.evaluate(action=action, execution_id=execution_id, role=role, **policy_kwargs)
         self._audit_record(
             actor=actor,
             source=source,

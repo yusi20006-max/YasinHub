@@ -19,12 +19,20 @@ import json
 from pathlib import Path
 from http.server import HTTPServer
 import threading
+import pytest
+from yasinhub.auth import AuthMode, reset_auth_for_tests
 
 from yasinhub.registry import ProjectEntry, default_registry
 from yasinhub.service_manager import start_service, stop_service, restart_service
 from yasinhub.pid_store import read_pid, is_pid_alive
 from yasinhub.api.server import YasinHubHandler
 
+
+@pytest.fixture(autouse=True)
+def _p0_test_auth():
+    reset_auth_for_tests(mode=AuthMode.TEST, tokens={})
+    yield
+    reset_auth_for_tests()
 
 def get_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
