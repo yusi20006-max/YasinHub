@@ -7,6 +7,10 @@ physical Android/Termux and credentialed publish boundary remains operator-only.
 
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.resource_sensitive
+
 import os
 from pathlib import Path
 
