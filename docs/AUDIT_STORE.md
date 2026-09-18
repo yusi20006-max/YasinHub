@@ -9,8 +9,8 @@ SharedState into an audit database.
 
 | Env | Purpose |
 |-----|---------|
-| `YASIN_AUDIT_BACKEND` | `memory` (default) or `file` |
-| `YASIN_AUDIT_DIR` | Directory for JSONL audit log when backend=`file` |
+| `YASIN_AUDIT_BACKEND` | `file` in production; `memory` only when explicitly selected for development/test |
+| `YASIN_AUDIT_DIR` | Directory for JSONL audit log; production default `~/.yasinhub/audit` |
 | `YASIN_AUDIT_RETENTION_MAX` | Max retained events (default 10000) |
 
 ## Record fields
@@ -44,3 +44,7 @@ get_policy_engine().list_audit(limit=50, actor="alice", execution_id="exec_1")
 ## Compatibility
 
 Existing JSONL records without `target` or `result` are normalized on read using `execution_id`/`external_ids.target` and `outcome`. Existing stored records are not rewritten solely to add these fields.
+
+## Production durability
+
+When `YASIN_AUTH_MODE=production` (or production is inferred from configured auth tokens), audit persistence defaults to the existing `file` backend. Explicit `YASIN_AUDIT_BACKEND=memory` is rejected in production. Startup validates the audit directory before launching the Hub.

@@ -4,7 +4,7 @@ Preserves PolicyEngine audit semantics while surviving process restart.
 SharedState remains coordination/idempotency only — not a full audit DB.
 
 Backends:
-  memory — process-local (tests / default)
+  memory — process-local (development/test only)
   file   — append-only JSONL under YASIN_AUDIT_DIR
 
 Config:
@@ -213,10 +213,17 @@ def _retention_max() -> int:
 
 
 def create_audit_store_from_env() -> AuditEventStore:
-    backend = (os.environ.get("YASIN_AUDIT_BACKEND") or "memory").strip().lower()
+    from ..auth import get_auth_mode, AuthMode
+    raw_backend = (os.environ.get("YASIN_AUDIT_BACKEND") or "").strip().lower()
+    production = get_auth_mode() == AuthMode.PRODUCTION
+    backend = raw_backend or ("file" if production else "memory")
     retention = _retention_max()
+    if backend not in ("memory", "file"):
+        raise ValueError("invalid YASIN_AUDIT_BACKEND; expected memory or file")
+    if production and backend == "memory":
+        raise ValueError("production requires durable audit backend=file")
     if backend == "file":
-        directory = (os.environ.get("YASIN_AUDIT_DIR") or "").strip() or "/tmp/yasin-audit"
+        directory = ((os.environ.get("YASIN_AUDIT_DIR") or "").strip() or str(Path.home() / ".yasinhub" / "audit"))
         return FileAuditStore(directory, retention_max=retention)
     return MemoryAuditStore(retention_max=retention)
 
@@ -239,3 +246,22 @@ def reset_audit_store_for_tests(store: Optional[AuditEventStore] = None) -> None
     global _store
     with _store_lock:
         _store = store if store is not None else MemoryAuditStore()
+
+
+def validate_production_audit_config() -> None:
+    """Fail closed when production audit persistence is memory-only or invalid."""
+    from ..auth import AuthMode, get_auth_mode
+    if get_auth_mode() != AuthMode.PRODUCTION:
+        return
+    backend = (os.environ.get("YASIN_AUDIT_BACKEND") or "file").strip().lower()
+    if backend != "file":
+        raise ValueError("production audit persistence must use YASIN_AUDIT_BACKEND=file")
+    directory = (os.environ.get("YASIN_AUDIT_DIR") or "").strip() or str(Path.home() / ".yasinhub" / "audit")
+    path = Path(directory).expanduser()
+    path.mkdir(parents=True, exist_ok=True)
+    probe = path / ".write-probe"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        raise ValueError("production audit directory is not writable") from exc

@@ -826,6 +826,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     """Non-interactive entrypoint. Never prompts, never reads stdin."""
     args = build_parser().parse_args(argv)
     try:
+        from .auth import AuthMode, get_auth_mode
+        if get_auth_mode() == AuthMode.PRODUCTION:
+            from .storage.audit_store import validate_production_audit_config
+            from .observer.lifecycle_ext import validate_production_execution_config
+            validate_production_audit_config()
+            validate_production_execution_config()
+    except (ValueError, OSError) as exc:
+        print(f"startup refused: invalid production durability configuration ({type(exc).__name__})", flush=True)
+        return 2
+
+    try:
         port = int(args.port) if args.port is not None else resolve_hub_port()
     except (TypeError, ValueError):
         print("startup refused: invalid port", flush=True)

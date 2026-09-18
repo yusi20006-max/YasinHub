@@ -61,8 +61,17 @@ def install(store_cls, *, redact_secrets, InvalidTransitionError) -> None:
 
     def __init__(self, *args, durable_dir: Optional[str] = None, **kwargs):
         _orig_init(self, *args, **kwargs)
-        raw = durable_dir or (os.environ.get("YASIN_EXECUTION_STORE_DIR") or "").strip() or None
-        self._durable_dir = Path(raw) if raw else None
+        from ..auth import AuthMode, get_auth_mode
+        raw_dir = durable_dir or (os.environ.get("YASIN_EXECUTION_STORE_DIR") or "").strip()
+        backend = (os.environ.get("YASIN_EXECUTION_BACKEND") or "").strip().lower()
+        production = get_auth_mode() == AuthMode.PRODUCTION
+        if backend not in ("", "file", "memory"):
+            raise ValueError("invalid YASIN_EXECUTION_BACKEND; expected memory or file")
+        if production and backend == "memory":
+            raise ValueError("production requires durable execution backend=file")
+        if production and not raw_dir:
+            raw_dir = str(Path.home() / ".yasinhub" / "executions")
+        self._durable_dir = Path(raw_dir).expanduser() if (raw_dir and backend != "memory") else None
         if self._durable_dir is not None:
             self._durable_dir.mkdir(parents=True, exist_ok=True)
             load_durable(self)
@@ -158,3 +167,22 @@ def install(store_cls, *, redact_secrets, InvalidTransitionError) -> None:
     store_cls._persist_execution = _persist_execution  # type: ignore
     store_cls._execution_path = _execution_path  # type: ignore
     store_cls._lifecycle_installed = True
+
+
+def validate_production_execution_config() -> None:
+    """Fail closed when production execution persistence is memory-only or invalid."""
+    from ..auth import AuthMode, get_auth_mode
+    if get_auth_mode() != AuthMode.PRODUCTION:
+        return
+    backend = (os.environ.get("YASIN_EXECUTION_BACKEND") or "file").strip().lower()
+    if backend != "file":
+        raise ValueError("production execution persistence must use YASIN_EXECUTION_BACKEND=file")
+    directory = (os.environ.get("YASIN_EXECUTION_STORE_DIR") or "").strip() or str(Path.home() / ".yasinhub" / "executions")
+    path = Path(directory).expanduser()
+    path.mkdir(parents=True, exist_ok=True)
+    probe = path / ".write-probe"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        raise ValueError("production execution directory is not writable") from exc
