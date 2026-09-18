@@ -81,6 +81,8 @@ class MemoryAuditStore:
         execution_id: Optional[str] = None,
         action: Optional[str] = None,
         since: Optional[float] = None,
+        target: Optional[str] = None,
+        result: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         with self._lock:
             items = list(self._items)
@@ -126,7 +128,7 @@ class FileAuditStore:
                         if not line:
                             continue
                         try:
-                            items.append(json.loads(line))
+                            items.append(_normalize(json.loads(line)))
                         except json.JSONDecodeError:
                             continue
             except OSError as exc:
@@ -178,6 +180,10 @@ class FileAuditStore:
             items = [i for i in items if i.get("action") == action]
         if since is not None:
             items = [i for i in items if float(i.get("timestamp") or 0) >= since]
+        if target is not None:
+            items = [i for i in items if i.get("target") == target]
+        if result is not None:
+            items = [i for i in items if i.get("result") == result]
         return items[-max(1, limit) :]
 
     def clear(self) -> None:
