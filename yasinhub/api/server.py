@@ -431,6 +431,41 @@ class YasinHubHandler(BaseHTTPRequestHandler):
             })
             return
 
+        if clean_path == "/api/audit":
+            try:
+                auth = authenticate_http(getattr(self, "headers", {}) or {})
+            except AuthError as exc:
+                self.send_json({"success": False, "error": exc.message, "code": exc.code}, status=exc.status)
+                return True
+            policy = get_policy_engine()
+            if not policy.can_read_audit(auth.role):
+                self.send_json(
+                    {"success": False, "error": "audit read requires operator role", "policy": "audit-read-rbac"},
+                    status=403,
+                )
+                return True
+            qs = parse_qs(parsed_url.query)
+            try:
+                limit = max(1, min(int((qs.get("limit") or ["100"])[0]), 1000))
+            except (TypeError, ValueError):
+                limit = 100
+            try:
+                since = float(qs["since"][0]) if qs.get("since") else None
+            except (TypeError, ValueError):
+                since = None
+            from ..storage.audit_store import get_audit_store
+            rows = get_audit_store().list(
+                limit=limit,
+                actor=(qs.get("actor") or [None])[0],
+                execution_id=(qs.get("execution_id") or [None])[0],
+                action=(qs.get("action") or [None])[0],
+                since=since,
+                target=(qs.get("target") or [None])[0],
+                result=(qs.get("result") or [None])[0],
+            )
+            self.send_json({"count": len(rows), "audit": rows})
+            return True
+
         if clean_path == "/api/events":
             query_params = parse_qs(parsed_url.query)
             service = query_params.get("service", [None])[0]
