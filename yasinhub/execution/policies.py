@@ -19,7 +19,7 @@ PRIVILEGED_OPS = {"merge", "production_merge", "force_push", "delete_branch"}
 
 CONTROL_MUTATION_ROLES = {Role.OPERATOR, Role.DEVELOPER, Role.ADMIN}
 AUDIT_READ_ROLES = {Role.OPERATOR, Role.DEVELOPER, Role.ADMIN}
-CONTROL_MUTATION_ACTIONS = {"start", "stop", "restart", "cancel", "retry", "re-run", "approve", "reject", "pause", "resume", "fleet_cancel"}
+CONTROL_MUTATION_ACTIONS = {"start", "stop", "restart", "cancel", "retry", "re-run", "approve", "reject", "pause", "resume", "fleet_cancel", "cleanup", "clear"}
 
 
 @dataclass
