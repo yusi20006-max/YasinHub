@@ -1,4 +1,4 @@
-"""Phase 2: real YasinHub ↔ YasinRelay control-plane lifecycle regressions."""
+import pytest\n\npytestmark = pytest.mark.resource_sensitive\n"""Phase 2: real YasinHub ↔ YasinRelay control-plane lifecycle regressions."""
 
 from __future__ import annotations
 
