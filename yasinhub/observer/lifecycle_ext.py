@@ -7,8 +7,43 @@ import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import threading
 
 from .models import ExecutionSnapshot, WorkspaceSnapshot
+
+_persistence_status_lock = threading.Lock()
+_persistence_failures = 0
+_last_persistence_failure_at: Optional[float] = None
+_last_persistence_failure_type: Optional[str] = None
+
+
+def record_execution_persistence_failure(exc: BaseException) -> None:
+    global _persistence_failures, _last_persistence_failure_at, _last_persistence_failure_type
+    with _persistence_status_lock:
+        _persistence_failures += 1
+        _last_persistence_failure_at = time.time()
+        _last_persistence_failure_type = type(exc).__name__
+
+
+def record_execution_persistence_success() -> None:
+    global _persistence_failures, _last_persistence_failure_at, _last_persistence_failure_type
+    with _persistence_status_lock:
+        _persistence_failures = 0
+        _last_persistence_failure_at = None
+        _last_persistence_failure_type = None
+
+
+def get_execution_persistence_status() -> Dict[str, Any]:
+    with _persistence_status_lock:
+        failures = _persistence_failures
+        last_at = _last_persistence_failure_at
+        last_type = _last_persistence_failure_type
+    return {
+        "status": "degraded" if failures else "healthy",
+        "persist_failures": failures,
+        "last_failure_at": last_at,
+        "last_failure_type": last_type,
+    }
 
 
 def load_durable(store) -> None:
@@ -90,8 +125,9 @@ def install(store_cls, *, redact_secrets, InvalidTransitionError) -> None:
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(redact_secrets(snap.as_dict()), default=str), encoding="utf-8")
             tmp.replace(path)
-        except OSError:
-            pass
+            record_execution_persistence_success()
+        except OSError as exc:
+            record_execution_persistence_failure(exc)
 
     def upsert_execution(self, snapshot: ExecutionSnapshot) -> ExecutionSnapshot:
         safe = _orig_upsert(self, snapshot)

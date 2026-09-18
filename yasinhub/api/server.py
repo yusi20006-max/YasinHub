@@ -268,10 +268,12 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
         if clean_path == "/api/health":
             from ..storage.audit_store import get_audit_persistence_status
+            from ..observer.lifecycle_ext import get_execution_persistence_status
             self.send_json({
                 "status": "ok",
                 "service": "YasinHub",
                 "audit_persistence": get_audit_persistence_status(),
+                "execution_persistence": get_execution_persistence_status(),
             })
             return
             self.send_json({
@@ -282,7 +284,11 @@ class YasinHubHandler(BaseHTTPRequestHandler):
 
         if clean_path == "/api/metrics":
             from ..storage.audit_store import get_audit_persistence_status
-            self.send_json({"audit_persistence": get_audit_persistence_status()})
+            from ..observer.lifecycle_ext import get_execution_persistence_status
+            self.send_json({
+                "audit_persistence": get_audit_persistence_status(),
+                "execution_persistence": get_execution_persistence_status(),
+            })
             return
         if clean_path == "/api/dashboard":
             reports = build_report()
