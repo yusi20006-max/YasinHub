@@ -88,6 +88,7 @@ class _FakeRequest(YasinHubHandler):
         self.headers = {"Authorization": f"Bearer {token}"} if token else {}
         self.rfile = None
         self.responses = []
+        self.handle_control = lambda *args: False
 
     def send_json(self, data, status=200):
         self.responses.append((status, data))
