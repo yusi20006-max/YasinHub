@@ -41,6 +41,8 @@ class AuditEventStore(Protocol):
         execution_id: Optional[str] = None,
         action: Optional[str] = None,
         since: Optional[float] = None,
+        target: Optional[str] = None,
+        result: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         ...
 
@@ -49,7 +51,13 @@ class AuditEventStore(Protocol):
 
 
 def _normalize(record: Dict[str, Any]) -> Dict[str, Any]:
-    return redact_secrets(dict(record))
+    row = redact_secrets(dict(record))
+    # Backward-compatible normalization for pre-#188 records.
+    if "target" not in row:
+        row["target"] = str(row.get("execution_id") or row.get("external_ids", {}).get("target") or "")
+    if "result" not in row:
+        row["result"] = str(row.get("outcome") or "")
+    return row
 
 
 class MemoryAuditStore:
@@ -84,6 +92,10 @@ class MemoryAuditStore:
             items = [i for i in items if i.get("action") == action]
         if since is not None:
             items = [i for i in items if float(i.get("timestamp") or 0) >= since]
+        if target is not None:
+            items = [i for i in items if i.get("target") == target]
+        if result is not None:
+            items = [i for i in items if i.get("result") == result]
         return items[-max(1, limit) :]
 
     def clear(self) -> None:
