@@ -39,7 +39,7 @@ def test_unmapped_slack_control_is_rejected_before_control_api(monkeypatch):
     from yasinhub.storage.shared_state import MemorySharedState
     from yasinhub.integrations.slack.permissions import IdentityStore
 
-    reset_auth_for_tests(mode=AuthMode.PRODUCTION, tokens={})
+    monkeypatch.setenv("YASIN_SLACK_IDENTITY_MAP", "")
     iface = YasinInterface(session_store=SessionStore(MemorySharedState()))
     session = iface.sessions.create(
         channel="slack", source="slack", thread_id="t191",
