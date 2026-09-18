@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.resource_sensitive
+
 import os
 import time
 from pathlib import Path
