@@ -49,3 +49,17 @@ and `YASIN_SLACK_IDENTITY_MAP`. HTTP token auth does not apply to Slack routes.
 - Authenticated principal identity overrides body/query/header actor hints; actor spoofing cannot elevate role.
 - Direct service controls and Observer mutations are authorized through the existing PolicyEngine and retain audit/idempotency handling.
 - Policy / audit / `control_event_id` remain authoritative after identity is established.
+
+
+## HTTP mutation inventory (#190)
+
+The reviewed HTTP mutation surface is:
+
+- `POST /api/control/<service>/<action>` — Bearer authentication + existing PolicyEngine role enforcement.
+- `POST /api/control` and `POST /api/control/command` — Bearer authentication + existing ControlAPI/PolicyEngine boundary.
+- Observer `POST /api/executions/<id>/{pause,resume,cancel}` — Bearer authentication + PolicyEngine.
+- Observer `POST /api/fleets/<task_id>/cancel` — Bearer authentication + PolicyEngine.
+- `POST /api/events/cleanup` and `POST /api/events/clear` — Bearer authentication + PolicyEngine `events_cleanup` role enforcement.
+- `GET /api/events/cleanup` and `GET /api/events/clear` are also treated as mutations because they execute cleanup and use the same security boundary.
+
+No read-only endpoint was changed solely for this inventory. Authenticated identity remains authoritative over client actor fields; cleanup idempotency uses the existing control-event/idempotency headers where supplied.
