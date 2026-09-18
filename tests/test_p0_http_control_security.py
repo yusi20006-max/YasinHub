@@ -215,3 +215,75 @@ def test_control_idempotency_remains_intact():
     assert first.allowed is True
     assert second.allowed is False
     assert second.policy == "idempotency"
+
+
+def test_event_cleanup_policy_requires_operator_role():
+    eng = PolicyEngine()
+    assert eng.evaluate(action="events_cleanup", role=Role.VIEWER).allowed is False
+    assert eng.evaluate(action="events_cleanup", role=Role.OPERATOR).allowed is True
+
+
+def test_event_cleanup_route_requires_auth_and_role(monkeypatch):
+    calls = []
+    monkeypatch.setattr("yasinhub.events_engine.cleanup_events", lambda: calls.append(True) or True)
+
+    class Request:
+        def __init__(self, headers):
+            self.path = "/api/events/cleanup"
+            self.headers = headers
+            self.rfile = BytesIO(b"")
+            self.responses = []
+            self.wfile = BytesIO()
+        def send_json(self, data, status=200):
+            self.responses.append((status, data))
+        def send_response(self, status):
+            self.responses.append((status, None))
+        def send_header(self, *args):
+            pass
+        def end_headers(self):
+            pass
+        def handle_control(self, *args):
+            return False
+
+    from yasinhub.api.server import YasinHubHandler
+    unauth = Request({})
+    YasinHubHandler.do_POST(unauth)
+    assert unauth.responses[0][0] == 401
+    assert calls == []
+
+    viewer = Request(_headers("viewer-token"))
+    YasinHubHandler.do_POST(viewer)
+    assert viewer.responses[0][0] == 403
+    assert calls == []
+
+    operator = Request(_headers("operator-token"))
+    YasinHubHandler.do_POST(operator)
+    assert operator.responses[0][0] == 200
+    assert calls == [True]
+
+
+def test_event_cleanup_actor_spoofing_does_not_change_audit_actor(monkeypatch):
+    monkeypatch.setattr("yasinhub.events_engine.cleanup_events", lambda: True)
+    class Request:
+        def __init__(self):
+            self.path = "/api/events/cleanup"
+            self.headers = _headers("operator-token")
+            self.rfile = BytesIO(b"")
+            self.responses = []
+            self.wfile = BytesIO()
+        def send_json(self, data, status=200):
+            self.responses.append((status, data))
+        def send_response(self, status):
+            self.responses.append((status, None))
+        def send_header(self, *args):
+            pass
+        def end_headers(self):
+            pass
+        def handle_control(self, *args):
+            return False
+    from yasinhub.api.server import YasinHubHandler
+    req = Request()
+    YasinHubHandler.do_POST(req)
+    assert req.responses[0][0] == 200
+    rows = get_policy_engine().list_audit(limit=10, action="events_cleanup")
+    assert rows and rows[-1]["actor"] == "operator-user"
