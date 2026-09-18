@@ -4,12 +4,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from yasinhub.auth import AuthMode, reset_auth_for_tests
 from yasinhub.observer.execution_store import ExecutionObserverStore
 from yasinhub.observer.lifecycle_ext import (
     get_execution_persistence_status,
     record_execution_persistence_success,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_execution_persistence_state():
+    reset_auth_for_tests()
+    record_execution_persistence_success()
+    yield
+    reset_auth_for_tests()
+    record_execution_persistence_success()
 
 
 def test_execution_persistence_failure_is_observable_and_recovery_clears(tmp_path, monkeypatch):
