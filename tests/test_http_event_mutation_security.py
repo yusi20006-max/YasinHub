@@ -74,18 +74,19 @@ def test_event_mutation_rejects_invalid_and_viewer_auth(monkeypatch, path):
     assert called == []
 
 
-@pytest.mark.parametrize("method", ["POST", "GET"])
-def test_event_cleanup_authorized_identity_is_token_principal(monkeypatch, method):
+@pytest.mark.parametrize("path", ["/api/events/cleanup", "/api/events/clear"])
+def test_event_cleanup_authorized_identity_is_token_principal(monkeypatch, path):
     called = []
     monkeypatch.setattr("yasinhub.events_engine.cleanup_events", lambda: called.append(True) or True)
-    req = _Request("/api/events/cleanup", token="operator-token", actor="spoofed-admin")
-    if method == "POST":
+    req = _Request(path, token="operator-token", actor="spoofed-admin")
+    if path.endswith("/cleanup"):
         YasinHubHandler.do_POST(req)
     else:
         YasinHubHandler.do_GET(req)
     assert req.responses[0][0] == 200
     assert called == [True]
-    rows = get_policy_engine().list_audit(limit=20, actor="operator-190", action="cleanup")
+    action = "cleanup" if path.endswith("/cleanup") else "clear"
+    rows = get_policy_engine().list_audit(limit=20, actor="operator-190", action=action)
     assert rows
 
 
