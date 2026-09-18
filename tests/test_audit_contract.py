@@ -79,7 +79,10 @@ def test_legacy_record_with_external_target_is_normalized():
     assert row["result"] == "ok"
 
 
-class _FakeRequest:
+from yasinhub.api.server import YasinHubHandler
+
+
+class _FakeRequest(YasinHubHandler):
     def __init__(self, path: str, token: str | None):
         self.path = path
         self.headers = {"Authorization": f"Bearer {token}"} if token else {}
