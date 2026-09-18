@@ -169,6 +169,8 @@ class FileAuditStore:
         execution_id: Optional[str] = None,
         action: Optional[str] = None,
         since: Optional[float] = None,
+        target: Optional[str] = None,
+        result: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         with self._lock:
             items = list(self._load())
