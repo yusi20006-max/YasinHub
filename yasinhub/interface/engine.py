@@ -8,6 +8,8 @@ import uuid
 from typing import Optional
 
 from ..execution.control_api import ControlRequest, get_control_api
+from ..auth.models import Role
+from ..integrations.slack.permissions import IdentityStore
 from .ai import get_ai_provider
 from .context import gather_context
 from .intents import Intent, IntentKind
@@ -184,6 +186,14 @@ class YasinInterface:
         self._sessions.save(session)
         return resp
 
+
+    @staticmethod
+    def _canonical_role(session: Session, source: str) -> Optional[Role]:
+        if source != "slack" or not getattr(session, "slack_user_id", None):
+            return None
+        identity = IdentityStore().resolve(session.slack_user_id)
+        return Role(identity.role.value) if identity else None
+
     def _handle_control_request(self, intent: Intent, session: Session, *, actor: str, source: str) -> InterfaceResponse:
         op = (intent.control_operation or "").lower()
         eid = intent.execution_id
@@ -193,6 +203,15 @@ class YasinInterface:
                 intent_kind=intent.kind.value,
                 confidence=0.3,
                 uncertainty="missing_operation",
+            )
+        canonical_role = self._canonical_role(session, source)
+        if source == "slack" and session.slack_user_id and canonical_role is None:
+            return InterfaceResponse(
+                answer="Your Slack user is not mapped to a Yasin identity.",
+                success=False,
+                intent_kind=intent.kind.value,
+                confidence=1.0,
+                error="unmapped_slack_user",
             )
         if op not in ("start", "cancel", "retry", "re-run", "approve", "reject", "pause", "resume"):
             return InterfaceResponse(
@@ -310,6 +329,7 @@ class YasinInterface:
             execution_id=eid,
             control_event_id=control_event_id,
             metadata={"via": "yasin_interface", "confirmation_token": token},
+            role=self._canonical_role(session, pending.get("source") or "yasin-interface"),
         )
         resp = self.control.handle(req)
 

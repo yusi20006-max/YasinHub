@@ -331,3 +331,21 @@ class TestSlackRoutes:
             send_json,
         )
         assert handled is False
+
+
+def test_slack_identity_bridges_to_canonical_principal():
+    from yasinhub.auth.models import Role, YasinPrincipal
+    from yasinhub.integrations.slack.permissions import (
+        SlackRole, YasinIdentity, identity_from_principal, principal_from_slack, role_from_slack,
+    )
+    identity = YasinIdentity("alice", SlackRole.OPERATOR, "U123", "Alice")
+    principal = principal_from_slack(identity)
+    assert principal.yasin_user_id == "alice"
+    assert principal.role == Role.OPERATOR
+    assert principal.source == "slack"
+    projected = identity_from_principal(
+        YasinPrincipal("alice", Role.OPERATOR, source="http", auth_method="bearer_token", display_name="Alice"),
+        slack_user_id="U123",
+    )
+    assert projected.role == SlackRole.OPERATOR
+    assert role_from_slack(identity) == Role.OPERATOR

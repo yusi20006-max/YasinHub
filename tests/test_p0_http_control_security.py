@@ -12,7 +12,7 @@ from yasinhub.api.server import YasinHubHandler
 from yasinhub.auth import AuthMode, Role, YasinPrincipal, reset_auth_for_tests
 from yasinhub.observer import get_default_store
 from yasinhub.observer.models import FleetSnapshot, WorkerSnapshot
-from yasinhub.execution.policies import PolicyEngine
+from yasinhub.execution.policies import PolicyEngine, get_policy_engine
 
 
 class _Handler:

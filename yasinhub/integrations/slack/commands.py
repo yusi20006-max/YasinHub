@@ -18,6 +18,7 @@ from ...execution.control_api import ControlRequest, get_control_api
 from ...observer import get_default_store
 from ...report import build_report
 from .events import SlackInboundEvent
+from ...auth.models import Role
 from .permissions import (
     AuthorizationError,
     IdentityStore,
@@ -197,6 +198,7 @@ class CommandDispatcher:
                 execution_id=eid,
                 control_event_id=event.request_id or f"slack-run-{uuid.uuid4().hex[:10]}",
                 metadata={"slack_user_id": identity.slack_user_id, "task": task},
+                role=Role(identity.role.value),
             )
         )
         status = "started" if ctrl.success else "queued"
@@ -219,6 +221,7 @@ class CommandDispatcher:
                 execution_id=eid,
                 control_event_id=event.request_id or f"slack-cancel-{uuid.uuid4().hex[:10]}",
                 metadata={"slack_user_id": identity.slack_user_id},
+                role=Role(identity.role.value),
             )
         )
         if not resp.success:

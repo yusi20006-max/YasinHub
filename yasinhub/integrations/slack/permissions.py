@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Optional, Set
 
+from ...auth.models import Role, YasinPrincipal
+
 
 class SlackRole(str, Enum):
     VIEWER = "VIEWER"
@@ -118,3 +120,29 @@ def authorize_command(
     if identity.role not in allowed:
         raise AuthorizationError("forbidden")
     return identity
+
+
+def role_from_slack(identity: YasinIdentity) -> Role:
+    """Map the existing SlackRole vocabulary into the canonical HTTP Role enum."""
+    return Role(identity.role.value)
+
+
+def principal_from_slack(identity: YasinIdentity) -> YasinPrincipal:
+    """Represent an authenticated Slack identity with the canonical principal model."""
+    return YasinPrincipal(
+        yasin_user_id=identity.yasin_user_id,
+        role=role_from_slack(identity),
+        source="slack",
+        auth_method="slack_hmac",
+        display_name=identity.display_name,
+    )
+
+
+def identity_from_principal(principal: YasinPrincipal, *, slack_user_id: Optional[str] = None) -> YasinIdentity:
+    """Project a canonical principal into the existing Slack identity vocabulary."""
+    return YasinIdentity(
+        yasin_user_id=principal.yasin_user_id,
+        role=SlackRole(principal.role.value),
+        slack_user_id=slack_user_id or principal.yasin_user_id,
+        display_name=principal.display_name,
+    )
