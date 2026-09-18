@@ -42,6 +42,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytestmark = pytest.mark.resource_sensitive
+
 from yasinhub import ports
 from yasinhub.auth import AuthMode, reset_auth_for_tests
 from yasinhub import runit
