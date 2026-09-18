@@ -11,6 +11,8 @@ from unittest.mock import patch, MagicMock
 import pytest
 from yasinhub.auth import AuthMode, reset_auth_for_tests
 
+pytestmark = pytest.mark.resource_sensitive
+
 from yasinhub.registry import ProjectEntry
 from yasinhub.pid_store import save_pid, read_pid, remove_pid, is_pid_alive
 from yasinhub.service_manager import start_service, stop_service, restart_service
