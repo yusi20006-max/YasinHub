@@ -443,7 +443,7 @@ def test_182_poststart_verification_gates(isolated_runtime):
 def _write_fake_sv(bin_dir: Path, log: Path):
     script = bin_dir / "sv"
     script.write_text(
-        "#!/bin/sh\import pytest\n\npytestmark = pytest.mark.resource_sensitive\nn"
+        "#!/bin/sh\n"
         f"echo \"$@\" >> \"{log}\"\n"
         "if [ \"$1\" = \"status\" ]; then echo \"run: fake\"; fi\n"
         "exit 0\n",
