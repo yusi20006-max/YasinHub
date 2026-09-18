@@ -205,7 +205,7 @@ class YasinInterface:
                 uncertainty="missing_operation",
             )
         canonical_role = self._canonical_role(session, source)
-        if source == "slack" and canonical_role is None:
+        if source == "slack" and session.slack_user_id and canonical_role is None:
             return InterfaceResponse(
                 answer="Your Slack user is not mapped to a Yasin identity.",
                 success=False,
