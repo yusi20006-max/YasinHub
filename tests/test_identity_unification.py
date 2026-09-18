@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from yasinhub.auth.models import AuthMode, Role, YasinPrincipal
-from yasinhub.auth import reset_auth_for_tests
+from yasinhub.auth.models import Role
 from yasinhub.integrations.slack.permissions import SlackRole, YasinIdentity, IdentityStore
 from yasinhub.integrations.slack.commands import CommandDispatcher
 from yasinhub.integrations.slack.events import SlackInboundEvent, SlackEventType
