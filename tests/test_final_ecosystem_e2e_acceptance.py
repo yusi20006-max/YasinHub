@@ -1,4 +1,4 @@
-"""Final software-side ecosystem E2E acceptance checks for Issue #174.
+import pytest\n\npytestmark = pytest.mark.resource_sensitive\n"""Final software-side ecosystem E2E acceptance checks for Issue #174.
 
 These checks deliberately stop at the software boundary. They prove the Hub's
 real-process lifecycle and the PWA's authoritative-state contract, while the
