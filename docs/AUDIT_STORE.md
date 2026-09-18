@@ -15,8 +15,18 @@ SharedState into an audit database.
 
 ## Record fields
 
-actor, source, policy_decision, action, target (`execution_id`), result (`outcome`),
+actor, source, policy_decision, action, target, result, outcome, execution_id,
 timestamp, correlation_id, external_ids, metadata (secret-redacted).
+
+`target` is canonical and falls back to `execution_id` for normal execution controls.
+`result` is canonical and falls back to the legacy `outcome` value for old records.
+
+## Operational HTTP Read Surface
+
+`GET /api/audit` requires a Bearer-authenticated `OPERATOR`, `DEVELOPER`, or `ADMIN` principal.
+Supported filters: `actor`, `execution_id`, `action`, `target`, `result`, `since`, and bounded `limit` (1–1000).
+The response is served through the existing audit store and therefore retains redaction and retention behavior.
+`VIEWER` and unauthenticated callers are rejected.
 
 ## Query
 
@@ -30,3 +40,7 @@ get_policy_engine().list_audit(limit=50, actor="alice", execution_id="exec_1")
 - Secrets are redacted before persistence
 - SharedState is not used as the audit store
 - Control API / Policy semantics unchanged
+
+## Compatibility
+
+Existing JSONL records without `target` or `result` are normalized on read using `execution_id`/`external_ids.target` and `outcome`. Existing stored records are not rewritten solely to add these fields.
