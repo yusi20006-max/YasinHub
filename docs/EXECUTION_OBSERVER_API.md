@@ -99,3 +99,16 @@ Parent cancellation sets worker `cancellation_state` and cancels linked non-term
 ## Out of scope
 
 Telegram, Discord, unrestricted shell/filesystem, computer-use, credential sharing, MCP redesign, new privilege grants.
+
+
+## Execution persistence health (#205)
+
+Production execution persistence uses the existing durable file backend. A safe process-local status is exposed under `execution_persistence` from `GET /api/health` and `GET /api/metrics`.
+
+- `healthy`: the most recent durable execution write succeeded and no current failure is recorded.
+- `degraded`: one or more durable execution writes failed.
+- `persist_failures`: current consecutive persistence failure count.
+- `last_failure_at`: timestamp of the most recent failure.
+- `last_failure_type`: exception class only; exception messages and execution payloads are never exposed.
+
+A subsequent successful durable write clears the degraded signal. This makes filesystem/durability failures operationally visible without introducing a second persistence backend.
